@@ -46,10 +46,14 @@ def main() -> None:
                     data[target_key] = row[source_key]
             data.setdefault("activity_period", "2024–2025")
             data.setdefault("activity_source", "Архив закупок команды: 2024–2025")
-            data.setdefault("contact_lookup_url", "https://yandex.ru/search/?text=" + quote(f"контакты компании ИНН {inn}"))
-            data.setdefault("website_lookup_url", "https://yandex.ru/search/?text=" + quote(f"официальный сайт компании ИНН {inn}"))
-            data.setdefault("portal_lookup_url", "https://zakupki.mos.ru/organization/list")
-            data.setdefault("fns_registry_url", "https://egrul.nalog.ru/")
+    # Pre-filter public lookup pages by the selected company's INN, including
+    # companies with an FNS/contact profile but no corresponding catalog row.
+    for inn, data in records.items():
+        portal_filter = json.dumps({"isSupplier": True, "inn": {"value": inn}}, separators=(",", ":"))
+        data.setdefault("contact_lookup_url", "https://yandex.ru/search/?text=" + quote(f"контакты компании ИНН {inn}"))
+        data.setdefault("website_lookup_url", "https://yandex.ru/search/?text=" + quote(f"официальный сайт компании ИНН {inn}"))
+        data["portal_lookup_url"] = "https://zakupki.mos.ru/organization/list?page=1&perPage=10&filter=" + quote(portal_filter, safe="")
+        data["fns_registry_url"] = "https://egrul.nalog.ru/index.html?query=" + quote(inn, safe="")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as output:
         output.write("DELETE FROM store WHERE key >= 'e:' AND key < 'e;';\n")

@@ -54,13 +54,19 @@ export interface SearchResult {
 }
 
 let apiUrl: Promise<string> | undefined
-export async function searchSuppliers(query: string, signal: AbortSignal): Promise<SearchResult> {
+export interface SearchOptions {
+  okpd2_code?: string
+  customer_inn?: string
+  start_price?: number
+}
+
+export async function searchSuppliers(query: string, signal: AbortSignal, options: SearchOptions = {}): Promise<SearchResult> {
   apiUrl ??= fetch(`${import.meta.env.BASE_URL}config.json`)
     .then(r => { if (!r.ok) throw new Error('Не найден адрес сервиса рекомендаций.'); return r.json() })
     .then(config => import.meta.env.VITE_API_URL || config.apiUrl || '/api')
   const response = await fetch(`${(await apiUrl).replace(/\/$/, '')}/search`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, top_k: 30 }), signal,
+    body: JSON.stringify({ query, top_k: 30, ...options }), signal,
   })
   if (!response.headers.get('content-type')?.includes('application/json')) {
     throw new Error('Сервис рекомендаций недоступен. Попробуйте позже.')

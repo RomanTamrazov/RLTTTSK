@@ -34,12 +34,20 @@ body {
   transition: transform 280ms ease;
 }
 
-.method-panel { width: max-content; max-width: 100%; margin: 12px auto 0; color: #777469; font-size: 11px; text-align: center; }
-.method-panel summary { display: inline-block; cursor: pointer; }
-.method-grid { display: none; }
-.method-panel[open] .method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; max-width: 680px; margin: 10px auto; text-align: left; }
-.method-grid div { display: flex; flex-direction: column; gap: 3px; line-height: 1.45; }
-.method-grid strong { color: #4e584e; }
+.csv-test-panel { width: min(100%, 620px); margin: 28px auto 0; padding: 16px 18px; background: #fffefaeb; border: 1px solid #e1ded6; border-radius: 12px; box-shadow: 0 8px 24px #2929250a; color: #69675e; font-size: 12px; animation: supplier-card-in 220ms ease both; }
+.csv-test-heading, .csv-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.csv-test-heading { justify-content: space-between; color: #4e584e; }
+.csv-test-panel p { margin: 8px 0 12px; line-height: 1.5; }
+.csv-test-panel code { color: #4e584e; }
+.csv-upload, .csv-run, .csv-cancel, .csv-template { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 11px; border: 1px solid #d7d3c9; border-radius: 7px; background: #fffefa; color: #4e584e; font: inherit; cursor: pointer; transition: color 140ms ease, border-color 140ms ease, background 140ms ease; }
+.csv-upload:hover, .csv-run:hover, .csv-cancel:hover, .csv-template:hover { color: #1677e8; border-color: #1677e8; background: #f3f8ff; }
+.csv-upload input { display: none; }
+.csv-run { margin-left: 8px; background: #eef0e9; }
+.csv-run:disabled { opacity: .65; cursor: wait; }
+.csv-cancel { margin-left: 8px; }
+.csv-error { color: #a23c32; }
+.csv-summary { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eeece5; }
+.csv-summary .csv-template { margin-left: auto; }
 
 .search-shell {
   position: relative;
@@ -106,10 +114,6 @@ body {
 @media (max-width: 1100px) {
   .supplier-preview { display: none; }
 }
-@media (max-width: 600px) {
-  .method-panel[open] .method-grid { grid-template-columns: 1fr; }
-}
-
 @media (max-width: 600px) {
   .company-title { font-size: 52px !important; }
   .search-input { font-size: 15px !important; }

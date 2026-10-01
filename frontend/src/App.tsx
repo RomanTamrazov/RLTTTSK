@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { searchSuppliers, type SearchResult } from './api'
+import { downloadResults, downloadTestTemplate, parseTestCsv, type TestCase, type TestResult } from './csvEvaluation'
 
 const EXAMPLES = ['ремонт автоэвакуатора ОКПД2 45.20.2', 'медицинские изделия', 'рыбные консервы', 'ИНН 7805198740']
 const title = (supplier: SearchResult['recommendations'][number]) => supplier.supplier_name || `Поставщик ИНН ${supplier.supplier_inn}`
 const mspLabel: Record<string, string> = { '1': 'микропредприятие', '2': 'малое предприятие', '3': 'среднее предприятие' }
+const companyLookupUrls = (inn: string) => ({
+  fns: `https://egrul.nalog.ru/index.html?query=${encodeURIComponent(inn)}`,
+  portal: `https://zakupki.mos.ru/organization/list?page=1&perPage=10&filter=${encodeURIComponent(JSON.stringify({ isSupplier: true, inn: { value: inn } }))}`,
+})
 
 export default function App() {
   const [query, setQuery] = useState('')
@@ -14,6 +19,12 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [previewHeight, setPreviewHeight] = useState(360)
+  const [testCases, setTestCases] = useState<TestCase[]>([])
+  const [testResults, setTestResults] = useState<TestResult[]>([])
+  const [testProgress, setTestProgress] = useState(0)
+  const [testRunning, setTestRunning] = useState(false)
+  const [testError, setTestError] = useState('')
+  const testController = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
@@ -21,6 +32,34 @@ export default function App() {
   const pageCount = Math.max(1, Math.ceil(suppliers.length / 5))
   const pageSuppliers = suppliers.slice(page * 5, page * 5 + 5)
   const selected = focused ? suppliers.find(s => s.supplier_inn === selectedInn) : undefined
+  const labeledResults = testResults.filter(item => item.testCase.expectedInn && item.result)
+  const hitAt1 = labeledResults.filter(item => item.result?.recommendations[0]?.supplier_inn === item.testCase.expectedInn).length
+  const hitAt5 = labeledResults.filter(item => item.result?.recommendations.slice(0, 5).some(candidate => candidate.supplier_inn === item.testCase.expectedInn)).length
+
+  async function loadTestCsv(file?: File) {
+    setTestError(''); setTestResults([]); setTestProgress(0); setTestCases([])
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) { setTestError('Файл больше 2 МБ. Разделите его на части.'); return }
+    try { setTestCases(parseTestCsv(await file.text())) }
+    catch (err) { setTestError(err instanceof Error ? err.message : 'Не удалось прочитать CSV.') }
+  }
+
+  async function runCsvEvaluation() {
+    if (!testCases.length) return
+    const controller = new AbortController()
+    testController.current = controller; setTestRunning(true); setTestError(''); setTestResults([]); setTestProgress(0)
+    const completed: TestResult[] = []
+    for (const testCase of testCases) {
+      if (controller.signal.aborted) break
+      try { completed.push({ testCase, result: await searchSuppliers(testCase.query, controller.signal, testCase.options) }) }
+      catch (err) {
+        if (controller.signal.aborted) break
+        completed.push({ testCase, error: err instanceof Error ? err.message : 'Ошибка запроса' })
+      }
+      setTestResults([...completed]); setTestProgress(completed.length)
+    }
+    testController.current = null; setTestRunning(false)
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -80,15 +119,21 @@ export default function App() {
             {query && <button className="clear-search" aria-label="Очистить поиск" onClick={() => { setQuery(''); inputRef.current?.focus() }}>×</button>}
           </div>
           {!focused && !query && <p className="search-hint">Найдите поставщиков для вашей закупки</p>}
-          <details className="method-panel">
-            <summary>Как формируется выдача</summary>
-            <div className="method-grid">
-              <div><strong>Совпадение с закупкой</strong><span>Текст и ОКПД2 сопоставляются с примерами закупок, где поставщик уже участвовал.</span></div>
-              <div><strong>Подтверждённый опыт</strong><span>Модель учитывает прошлые участия и победы в ЭМ, опыт в разделе и у заказчика.</span></div>
-              <div><strong>Свежесть опыта</strong><span>Недавняя активность помогает отличить актуальный опыт от устаревшего.</span></div>
-              <div><strong>Проверка компании</strong><span>Регион, ОКВЭД, контакты и ссылки помогают проверить карточку, но не входят в балл модели.</span></div>
-            </div>
-          </details>
+          {!focused && <section className="csv-test-panel" aria-label="Тестирование модели по CSV">
+            <div className="csv-test-heading"><strong>Проверить модель на CSV</strong><button type="button" className="csv-template" onClick={downloadTestTemplate}>Скачать шаблон</button></div>
+            <p>Файл обрабатывается в браузере. Обязательная колонка — <code>query</code>; для Hit@1/Hit@5 добавьте <code>expected_inn</code>.</p>
+            <label className="csv-upload">{testCases.length ? `Загружено строк: ${testCases.length}` : 'Выбрать CSV'}
+              <input type="file" accept=".csv,text/csv" onChange={event => { void loadTestCsv(event.target.files?.[0]); event.currentTarget.value = '' }} />
+            </label>
+            {testCases.length > 0 && <button type="button" className="csv-run" disabled={testRunning} onClick={() => void runCsvEvaluation()}>{testRunning ? `Проверено ${testProgress} из ${testCases.length}` : 'Запустить проверку'}</button>}
+            {testRunning && <button type="button" className="csv-cancel" onClick={() => testController.current?.abort()}>Остановить</button>}
+            {testError && <p className="csv-error" role="alert">{testError}</p>}
+            {testResults.length > 0 && <div className="csv-summary" role="status">
+              <span>Готово: {testResults.length}/{testCases.length}</span>
+              {labeledResults.length > 0 && <span>Размечено: {labeledResults.length} · Hit@1: {(100 * hitAt1 / labeledResults.length).toFixed(1)}% · Hit@5: {(100 * hitAt5 / labeledResults.length).toFixed(1)}%</span>}
+              <button type="button" className="csv-template" onClick={() => downloadResults(testResults)}>Скачать результаты</button>
+            </div>}
+          </section>}
           {focused && (
             <div id="supplier-results" className="search-dropdown" style={{ minHeight: suppliers.length ? previewHeight : undefined }}>
               {query.trim().length < 2 ? <div className="search-status">
@@ -138,12 +183,12 @@ export default function App() {
                 {selected.enrichment.observed_lots && <span>Лотов в архиве: {selected.enrichment.observed_lots}</span>}
                 {selected.enrichment.snapshot_date && <small>ФНС: срез от {selected.enrichment.snapshot_date} · <a href={selected.enrichment.source_url} target="_blank" rel="noreferrer">источник ↗</a></small>}
                 {selected.enrichment.activity_source && <small>{selected.enrichment.activity_source}</small>}
-                <div className="supplier-discovery-links">
-                  {selected.enrichment.fns_registry_url && <a href={selected.enrichment.fns_registry_url} target="_blank" rel="noreferrer">Проверить ЕГРЮЛ ↗</a>}
-                  {selected.enrichment.website_lookup_url && !selected.enrichment.website && <a href={selected.enrichment.website_lookup_url} target="_blank" rel="noreferrer">Найти сайт ↗</a>}
-                  {selected.enrichment.portal_lookup_url && <a href={selected.enrichment.portal_lookup_url} target="_blank" rel="noreferrer">Открыть портал поставщиков ↗</a>}
-                </div>
+                {selected.enrichment.website_lookup_url && !selected.enrichment.website && <a href={selected.enrichment.website_lookup_url} target="_blank" rel="noreferrer">Найти сайт ↗</a>}
               </div>}
+              <div className="supplier-discovery-links">
+                <a href={companyLookupUrls(selected.supplier_inn).fns} target="_blank" rel="noreferrer">Проверить ЕГРЮЛ по ИНН ↗</a>
+                <a href={companyLookupUrls(selected.supplier_inn).portal} target="_blank" rel="noreferrer">Найти компанию на Портале поставщиков ↗</a>
+              </div>
               <div className="supplier-contact">
                 <h3>Связаться с компанией</h3>
                 {selected.enrichment?.phone && <a href={`tel:${selected.enrichment.phone.replace(/[^+\d]/g, '')}`}>Позвонить: {selected.enrichment.phone}</a>}
