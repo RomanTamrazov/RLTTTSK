@@ -21,6 +21,16 @@ export interface Supplier {
     contact_url?: string
     contact_source?: string
     contact_checked_date?: string
+    last_activity?: string
+    observed_lots?: string
+    ais_records?: string
+    em_records?: string
+    activity_period?: string
+    activity_source?: string
+    contact_lookup_url?: string
+    website_lookup_url?: string
+    portal_lookup_url?: string
+    fns_registry_url?: string
   } | null
   reasons: string[]
   history: {

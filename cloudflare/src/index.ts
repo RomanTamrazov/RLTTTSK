@@ -7,7 +7,9 @@ type Catalog = RecordValue & { observed_lots: number; ais_records: number; em_re
 type External = RecordValue & { supplier_name: string; profile_text: string; source: string; source_url: string; okpd2_codes: string; portal_status: string; portal_offer_count: string; offer_region_match: string; portal_category_match: string }
 type Enrichment = { supplier_name?: string; region?: string; city?: string; primary_okved?: string; msp_category?: string;
   staff_count?: string; snapshot_date?: string; source_url?: string; phone?: string; email?: string; website?: string;
-  contact_url?: string; contact_source?: string; contact_checked_date?: string }
+  contact_url?: string; contact_source?: string; contact_checked_date?: string; last_activity?: string;
+  observed_lots?: string; ais_records?: string; em_records?: string; activity_period?: string;
+  activity_source?: string; contact_lookup_url?: string; website_lookup_url?: string; portal_lookup_url?: string; fns_registry_url?: string }
 type Profile = { global: RecordValue; categories: Record<string, RecordValue>; catalog: Record<string, Catalog>; external?: External }
 type BuyerProfile = Record<string, [number, number, Record<string, number>]>
 type Match = { inn: string; division: string; relevance: number; example: string; catalog?: Catalog; profile: Profile }
