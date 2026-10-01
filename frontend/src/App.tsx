@@ -9,6 +9,7 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
   const [selectedInn, setSelectedInn] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
   const [result, setResult] = useState<SearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -17,11 +18,13 @@ export default function App() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const suppliers = result?.recommendations ?? []
+  const pageCount = Math.max(1, Math.ceil(suppliers.length / 5))
+  const pageSuppliers = suppliers.slice(page * 5, page * 5 + 5)
   const selected = focused ? suppliers.find(s => s.supplier_inn === selectedInn) : undefined
 
   useEffect(() => {
     const controller = new AbortController()
-    setResult(null); setError(''); setSelectedInn(null)
+    setResult(null); setError(''); setSelectedInn(null); setPage(0)
     if (query.trim().length < 2) { setLoading(false); return }
     setLoading(true)
     const timer = setTimeout(() => {
@@ -53,10 +56,9 @@ export default function App() {
       <img className="city-background" src={`${import.meta.env.BASE_URL}images/petersburg-sketch.png`} alt="" aria-hidden="true" />
       <div className="app-content">
         <h1 className="company-title">RLTTTSK</h1>
-        <div ref={wrapRef} className="search-workspace">
-          <section className="query-panel" aria-label="Поиск закупки">
-            <p className="query-label">Что нужно закупить?</p>
-            <div className={`search-shell${focused ? ' is-focused' : ''}`}>
+        <div ref={wrapRef} className={`search-layout${focused ? ' is-open' : ''}${selected ? ' has-preview' : ''}`}>
+          {selected && <div className="search-hover-area" aria-hidden="true" style={{ height: `calc(100% + ${previewHeight + 12}px)` }} />}
+          <div className={`search-shell${focused ? ' is-focused' : ''}`}>
             <span className="search-icon" aria-hidden="true">⌕</span>
             <input
               className="search-input" ref={inputRef} type="search" value={query} maxLength={500}
@@ -71,49 +73,53 @@ export default function App() {
                   const index = suppliers.findIndex(s => s.supplier_inn === selectedInn)
                   const next = (index + (event.key === 'ArrowDown' ? 1 : suppliers.length - 1)) % suppliers.length
                   setSelectedInn(suppliers[next].supplier_inn)
+                  setPage(Math.floor(next / 5))
                 }
               }}
             />
             {query && <button className="clear-search" aria-label="Очистить поиск" onClick={() => { setQuery(''); inputRef.current?.focus() }}>×</button>}
-            </div>
-            <p className="search-hint">Опишите закупку или введите ИНН / ОКПД2</p>
-            {!query && <div className="query-examples">{EXAMPLES.map(example => <button className="query-example" key={example} onClick={() => { setQuery(example); inputRef.current?.focus() }}>{example}</button>)}</div>}
-          </section>
+          </div>
+          {!focused && !query && <p className="search-hint">Найдите поставщиков для вашей закупки</p>}
           <details className="method-panel">
             <summary>Как формируется выдача</summary>
             <div className="method-grid">
-              <div><strong>1. Совпадение с закупкой</strong><span>Текст закупки сравнивается с прошлым опытом поставщика, а ОКПД2 задаёт раздел товаров или работ.</span></div>
-              <div><strong>2. Подтверждённый опыт</strong><span>Учитываются участия и победы в ЭМ: в целом, в нужном разделе и у этого заказчика.</span></div>
-              <div><strong>3. Свежесть</strong><span>Более свежая активность получает преимущество, чтобы старый опыт не вытеснял актуальных поставщиков.</span></div>
-              <div><strong>4. CatBoost</strong><span>Модель учит порядок кандидатов на исторических закупках, а не обещает гарантированную победу.</span></div>
+              <div><strong>Совпадение с закупкой</strong><span>Текст и ОКПД2 сопоставляются с примерами закупок, где поставщик уже участвовал.</span></div>
+              <div><strong>Подтверждённый опыт</strong><span>Модель учитывает прошлые участия и победы в ЭМ, опыт в разделе и у заказчика.</span></div>
+              <div><strong>Свежесть опыта</strong><span>Недавняя активность помогает отличить актуальный опыт от устаревшего.</span></div>
+              <div><strong>Проверка компании</strong><span>Регион, ОКВЭД, контакты и ссылки помогают проверить карточку, но не входят в балл модели.</span></div>
             </div>
-            <p className="method-note">ФНС, контакты и ссылки помогают проверить компанию, но не накручивают её модельный балл. Записи АИС ГЗ используются как каталог опыта, потому что в них нет полного списка проигравших.</p>
           </details>
-          <div className={`search-layout${focused ? ' is-open' : ''}${selected ? ' has-preview' : ''}`}>
-            {selected && <div className="search-hover-area" aria-hidden="true" style={{ height: `calc(100% + ${previewHeight + 12}px)` }} />}
-            {focused && query.trim().length >= 2 && (
+          {focused && (
             <div id="supplier-results" className="search-dropdown" style={{ minHeight: suppliers.length ? previewHeight : undefined }}>
-              {loading ? <p className="search-status loading-status" role="status">Подбираем поставщиков<span className="loading-dots" aria-hidden="true">…</span></p>
+              {query.trim().length < 2 ? <div className="search-status">
+                <p>Опишите закупку или введите ИНН / ОКПД2</p>
+                {EXAMPLES.map(example => <button className="query-example" key={example} onClick={() => setQuery(example)}>{example}</button>)}
+              </div> : loading ? <p className="search-status loading-status" role="status">Подбираем поставщиков<span className="loading-dots" aria-hidden="true">…</span></p>
                 : error ? <p className="search-status" role="alert">{error}</p>
                   : !suppliers.length ? <p className="search-status" role="status">Поставщики не найдены. Уточните предмет закупки или код ОКПД2.</p>
                     : <>
                       <div className="results-caption">{result?.mode === 'supplier_lookup' ? 'Найден поставщик' : `Кандидатов: ${result?.candidate_count} · ОКПД2 ${result?.category_division}`}{result?.search_fallback && ' · поиск расширен'}{result?.parsed_query.customer_inn && ' · учтён заказчик'}</div>
                       <div className="search-results">
-                        {suppliers.map(item => (
-                          <button key={item.supplier_inn} className={`search-result${selectedInn === item.supplier_inn ? ' is-active' : ''}`}
+                        {pageSuppliers.map((item, index) => (
+                          <button key={item.supplier_inn} style={{ animationDelay: `${index * 35}ms` }} className={`search-result${selectedInn === item.supplier_inn ? ' is-active' : ''}`}
                             onMouseEnter={() => setSelectedInn(item.supplier_inn)} onFocus={() => setSelectedInn(item.supplier_inn)}
                             onClick={() => setSelectedInn(selectedInn === item.supplier_inn ? null : item.supplier_inn)}>
-                            <span className="supplier-rank" aria-hidden="true">•</span>
+                            <span className="supplier-rank">{item.rank}</span>
                             <span className="result-text"><span className="result-title">{title(item)}</span><span className="result-description">{item.profile_excerpt || item.source}</span></span>
                           </button>
                         ))}
                       </div>
+                      {suppliers.length > 5 && <nav className="candidate-pagination" aria-label="Страницы кандидатов">
+                        <button type="button" aria-label="Предыдущие кандидаты" disabled={page === 0} onClick={() => { setPage(page - 1); setSelectedInn(null) }}>‹</button>
+                        <span>{page + 1} / {pageCount}</span>
+                        <button type="button" aria-label="Следующие кандидаты" disabled={page + 1 >= pageCount} onClick={() => { setPage(page + 1); setSelectedInn(null) }}>›</button>
+                      </nav>}
                     </>}
             </div>
           )}
-          <aside ref={previewRef} className="supplier-preview" aria-label="Опыт поставщика" aria-hidden={!selected}
+          <aside ref={previewRef} className={`supplier-preview${selected ? ' is-visible' : ''}`} aria-label="Опыт поставщика" aria-hidden={!selected}
             style={{ opacity: selected ? 1 : 0, pointerEvents: selected ? 'auto' : 'none' }}>
-            {selected && <>
+            {selected && <div key={selected.supplier_inn} className="supplier-preview-content">
               <h2 className="supplier-title">{title(selected)}</h2>
               <p className="supplier-meta">ИНН {selected.supplier_inn} · ОКПД2 {selected.category_division}</p>
               <p className="supplier-description">{selected.profile_excerpt}</p>
@@ -152,10 +158,9 @@ export default function App() {
               <ul className="supplier-reasons">{selected.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
               <p className="supplier-source">{selected.source}</p>
               {selected.source_url.startsWith('https://') && <a className="supplier-link" href={selected.source_url} target="_blank" rel="noreferrer">Профиль в источнике ↗</a>}
-            </>}
+            </div>}
           </aside>
         </div>
-      </div>
       </div>
     </main>
   )

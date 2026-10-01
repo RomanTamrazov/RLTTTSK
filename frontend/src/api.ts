@@ -60,7 +60,7 @@ export async function searchSuppliers(query: string, signal: AbortSignal): Promi
     .then(config => import.meta.env.VITE_API_URL || config.apiUrl || '/api')
   const response = await fetch(`${(await apiUrl).replace(/\/$/, '')}/search`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, top_k: 5 }), signal,
+    body: JSON.stringify({ query, top_k: 30 }), signal,
   })
   if (!response.headers.get('content-type')?.includes('application/json')) {
     throw new Error('Сервис рекомендаций недоступен. Попробуйте позже.')
