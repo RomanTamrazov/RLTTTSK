@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rltttsk-recommender",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  "vars": { "ALLOWED_ORIGINS": "https://romantamrazov.github.io,http://localhost:5173,http://127.0.0.1:5173" },
+  "d1_databases": [{ "binding": "DB", "database_name": "rltttsk-suppliers", "database_id": "90cabda8-1604-41c7-baad-89338f4ebda9" }]
+}

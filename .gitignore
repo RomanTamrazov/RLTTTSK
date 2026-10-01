@@ -12,3 +12,6 @@ __pycache__/
 !/backend/artifacts/feature_importance.csv
 node_modules/
 frontend/dist/
+/cloudflare/generated/*
+!/cloudflare/generated/model.json
+/cloudflare/.wrangler/
