@@ -150,10 +150,13 @@ body {
 .company-title { font-size: 110px; font-weight: 800; line-height: 1; margin: 0 0 40px; user-select: none; }
 .search-shell { display: flex; align-items: center; background: #fffefa; border: 1px solid #d7d3c9; border-radius: 28px; box-shadow: 0 4px 16px #2929250a; }
 .search-shell.is-focused { border-color: #706d62; box-shadow: 0 0 0 3px #706d621a; }
-.search-icon { font-size: 28px; padding: 0 20px; color: #706d62; }
-.search-input { flex: 1; background: transparent; border: none; outline: none; color: #292925; font-size: 17px; padding: 13px 0; font-family: inherit; }
+.search-input { flex: 1; background: transparent; border: none; outline: none; color: #292925; font-size: 17px; padding: 13px 0 13px 22px; font-family: inherit; }
 .search-input::-webkit-search-cancel-button { display: none; }
-.clear-search { padding: 0 18px; background: none; border: none; color: #706d62; cursor: pointer; font-size: 24px; }
+.clear-search { padding: 0 10px; background: none; border: none; color: #706d62; cursor: pointer; font-size: 22px; }
+.search-submit { display: inline-flex; flex: 0 0 42px; align-items: center; justify-content: center; width: 42px; height: 42px; margin: 3px 5px 3px 0; border: 0; border-radius: 50%; background: #eef0e9; color: #4e584e; cursor: pointer; transition: color 150ms ease, background 150ms ease, transform 150ms ease; }
+.search-submit svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.search-submit:hover, .search-submit:focus-visible { background: #e6f1ff; color: #1677e8; }
+.search-submit:active { transform: scale(.94); }
 .search-hint { text-align: center; color: #777469; font-size: 13px; margin: 16px 0 0; }
 .search-status { padding: 20px 22px; margin: 0; color: #69675e; font-size: 14px; line-height: 1.6; }
 .query-example { display: block; width: 100%; background: none; border: none; padding: 8px 0; text-align: left; color: #4e584e; font: inherit; cursor: pointer; }

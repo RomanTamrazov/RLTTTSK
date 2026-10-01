@@ -12,6 +12,8 @@ const companyLookupUrls = (inn: string) => ({
 
 export default function App() {
   const [query, setQuery] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
+  const [searchRun, setSearchRun] = useState(0)
   const [focused, setFocused] = useState(false)
   const [selectedInn, setSelectedInn] = useState<string | null>(null)
   const [page, setPage] = useState(0)
@@ -35,6 +37,13 @@ export default function App() {
   const pageSuppliers = suppliers.slice(page * 5, page * 5 + 5)
   const selected = focused ? suppliers.find(s => s.supplier_inn === selectedInn) : undefined
   const recommendedCount = bulkResults.reduce((sum, row) => sum + (row.result?.recommendations.length ?? 0), 0)
+
+  function submitSearch(value = query) {
+    const clean = value.trim()
+    setFocused(true)
+    if (clean.length < 2) return
+    setQuery(clean); setSubmittedQuery(clean); setSearchRun(run => run + 1)
+  }
 
   async function loadPurchaseCsv(file?: File) {
     setBulkError(''); setBulkResults([]); setBulkProgress(0); setPurchases([]); setCsvHeaders([])
@@ -75,16 +84,14 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController()
     setResult(null); setError(''); setSelectedInn(null); setPage(0)
-    if (query.trim().length < 2) { setLoading(false); return }
+    if (query.trim().length < 2 || submittedQuery !== query.trim()) { setLoading(false); return }
     setLoading(true)
-    const timer = setTimeout(() => {
-      searchSuppliers(query.trim(), controller.signal)
-        .then(data => { if (!controller.signal.aborted) setResult(data) })
-        .catch(err => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Не удалось выполнить поиск.') })
-        .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    }, 450)
-    return () => { clearTimeout(timer); controller.abort() }
-  }, [query])
+    searchSuppliers(submittedQuery, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setResult(data) })
+      .catch(err => { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Не удалось выполнить поиск.') })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [query, searchRun, submittedQuery])
 
   useEffect(() => {
     if (!previewRef.current) return
@@ -108,8 +115,7 @@ export default function App() {
         <h1 className="company-title">RLTTTSK</h1>
         <div ref={wrapRef} className={`search-layout${focused ? ' is-open' : ''}${selected ? ' has-preview' : ''}`}>
           {selected && <div className="search-hover-area" aria-hidden="true" style={{ height: `calc(100% + ${previewHeight + 12}px)` }} />}
-          <div className={`search-shell${focused ? ' is-focused' : ''}`}>
-            <span className="search-icon" aria-hidden="true">⌕</span>
+          <form className={`search-shell${focused ? ' is-focused' : ''}`} onSubmit={event => { event.preventDefault(); submitSearch() }}>
             <input
               className="search-input" ref={inputRef} type="search" value={query} maxLength={500}
               aria-label="Предмет закупки, ИНН или ОКПД2" aria-controls="supplier-results" aria-expanded={focused}
@@ -117,7 +123,6 @@ export default function App() {
               onChange={event => setQuery(event.target.value)} onFocus={() => setFocused(true)}
               onKeyDown={event => {
                 if (event.key === 'Escape') { setFocused(false); setSelectedInn(null) }
-                if (event.key === 'Enter') setFocused(true)
                 if (['ArrowDown', 'ArrowUp'].includes(event.key) && suppliers.length) {
                   event.preventDefault(); setFocused(true)
                   const index = suppliers.findIndex(s => s.supplier_inn === selectedInn)
@@ -127,15 +132,17 @@ export default function App() {
                 }
               }}
             />
-            {query && <button className="clear-search" aria-label="Очистить поиск" onClick={() => { setQuery(''); inputRef.current?.focus() }}>×</button>}
-          </div>
+            {query && <button type="button" className="clear-search" aria-label="Очистить поиск" onClick={() => { setQuery(''); setSubmittedQuery(''); inputRef.current?.focus() }}>×</button>}
+            <button type="submit" className="search-submit" aria-label="Найти кандидатов" title="Найти кандидатов"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4" /><path d="m15.5 15.5 5 5" /></svg></button>
+          </form>
           {!focused && !query && <p className="search-hint">Найдите поставщиков для вашей закупки</p>}
           {focused && (
             <div id="supplier-results" className="search-dropdown" style={{ minHeight: suppliers.length ? previewHeight : undefined }}>
               {query.trim().length < 2 ? <div className="search-status">
                 <p>Опишите закупку или введите ИНН / ОКПД2</p>
-                {EXAMPLES.map(example => <button className="query-example" key={example} onClick={() => setQuery(example)}>{example}</button>)}
-              </div> : loading ? <p className="search-status loading-status" role="status">Подбираем поставщиков<span className="loading-dots" aria-hidden="true">…</span></p>
+                {EXAMPLES.map(example => <button className="query-example" key={example} onClick={() => { setQuery(example); submitSearch(example) }}>{example}</button>)}
+              </div> : submittedQuery !== query.trim() ? <p className="search-status">Нажмите кнопку поиска или Enter, чтобы подобрать кандидатов.</p>
+                : loading ? <p className="search-status loading-status" role="status">Подбираем поставщиков<span className="loading-dots" aria-hidden="true">…</span></p>
                 : error ? <p className="search-status" role="alert">{error}</p>
                   : !suppliers.length ? <p className="search-status" role="status">Поставщики не найдены. Уточните предмет закупки или код ОКПД2.</p>
                     : <>
