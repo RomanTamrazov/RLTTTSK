@@ -1,0 +1,18 @@
+Feature Id,Importances
+history_win_rate,0.05400617460516122
+buyer_wins,0.012019967386441621
+category_win_rate,0.00942369479123284
+buyer_win_rate,0.007945880732989297
+days_since_supplier_activity,0.005744443695789303
+text_similarity,0.0043812120971402635
+history_wins,0.0018307102991719226
+category_division,0.0014219907512861285
+buyer_category_wins,0.000716870820052895
+category_wins,0.000383617085518706
+category_participations,0.00025189207514653145
+history_participations,0.00024963629659813247
+start_price_log,0.00015723971541081738
+category_code_match,0.00014209490474503816
+days_since_category_activity,0.0
+buyer_participations,0.0
+category_count,0.0

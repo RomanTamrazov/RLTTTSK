@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+.env
+.env.*
+!.env.example
+/*.csv
+/prepared/
+/artifacts/*
+!/artifacts/README.md
+!/artifacts/training_report.json
+!/artifacts/feature_importance.csv
+!/artifacts/model_comparison.json
+node_modules/
+frontend/dist/

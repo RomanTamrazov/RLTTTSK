@@ -1,0 +1,66 @@
+{
+  "model": "CatBoostRanker/YetiRankPairwise",
+  "feature_schema_version": 5,
+  "price_cap_em_rub": 600000.0,
+  "model_file": "supplier_ranker.cbm",
+  "training_period": "до 2025-01-01 (граница не включена)",
+  "validation_period": "с 2025-01-01 по 2025-12-30",
+  "train_lots": 74485,
+  "validation_lots": 79045,
+  "metrics_definition": "Лоты с >=2 записанными участниками и ровно одним победителем; ранжирование только внутри этих участников.",
+  "simple_rule": {
+    "eligible_lots": 79045,
+    "hit_rate_at_1": 0.6052122208868366,
+    "mrr": 0.763862740581817,
+    "ndcg_at_5": 0.816609642624627,
+    "ndcg_at_10": 0.8229576258603607
+  },
+  "catboost": {
+    "eligible_lots": 79045,
+    "hit_rate_at_1": 0.6544246947941046,
+    "mrr": 0.7937088486016478,
+    "ndcg_at_5": 0.839886089437114,
+    "ndcg_at_10": 0.8453512438926232
+  },
+  "cold_start_simulation": {
+    "eligible_lots": 79045,
+    "hit_rate_at_1": 0.3914985135049655,
+    "mrr": 0.619416664025937,
+    "ndcg_at_5": 0.6946550264464878,
+    "ndcg_at_10": 0.7128016378059849
+  },
+  "cold_start_training_group_share": 0.1,
+  "best_iteration": 290,
+  "features": [
+    "history_participations",
+    "history_wins",
+    "history_win_rate",
+    "days_since_supplier_activity",
+    "category_participations",
+    "category_wins",
+    "category_win_rate",
+    "category_code_match",
+    "days_since_category_activity",
+    "buyer_participations",
+    "buyer_wins",
+    "buyer_win_rate",
+    "buyer_category_wins",
+    "start_price_log",
+    "text_similarity",
+    "category_count",
+    "category_division"
+  ],
+  "categorical_features": [
+    "category_division"
+  ],
+  "feature_importance_file": "feature_importance.csv",
+  "limitations": [
+    "Метрика не измеряет полноту поиска компаний, отсутствующих в таблице исторических участников.",
+    "2025 год используется для early stopping и сравнения вариантов; это validation, а не независимый финальный тест.",
+    "Cold-start метрика симулирует поставщика с обнулённой историей среди известных участников; она не заменяет проверку на новых реальных компаниях.",
+    "Для нового поставщика категория и текст профиля должны прийти из пула сайта.",
+    "Статус, число предложений и регион из внешнего каталога показываются как проверяемые сигналы, но не входят в обученный score без исторических меток по этим полям.",
+    "Обучение и метрики относятся к электронному магазину: в АИС ГЗ нет строк проигравших, поэтому его записи используются как кандидаты, а не как конкурентная разметка.",
+    "Цена выше 600 000 ₽ в электронном магазине ограничивается для модели; исходное значение в CSV сохраняется без изменений."
+  ]
+}

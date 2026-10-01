@@ -1,0 +1,48 @@
+name: Publish frontend to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        if: hashFiles('frontend/package.json') != ''
+        with:
+          node-version: '22'
+      - name: Prepare frontend
+        id: frontend
+        run: |
+          if [ -f frontend/package.json ]; then
+            npm ci --prefix frontend
+            npm run build --prefix frontend
+            site_dir=frontend/dist
+          else
+            site_dir=frontend
+          fi
+          test -f "$site_dir/index.html"
+          echo "path=$site_dir" >> "$GITHUB_OUTPUT"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ steps.frontend.outputs.path }}
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
