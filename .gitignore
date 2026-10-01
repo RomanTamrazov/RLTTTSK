@@ -10,6 +10,8 @@ __pycache__/
 /backend/artifacts/*
 !/backend/artifacts/training_report.json
 !/backend/artifacts/feature_importance.csv
+!/backend/artifacts/fns_supplier_enrichment.csv.gz
+!/backend/artifacts/supplier_contacts.csv
 node_modules/
 frontend/dist/
 /cloudflare/generated/*

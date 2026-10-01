@@ -7,6 +7,21 @@ export interface Supplier {
   rank_score: number | null
   source: string
   source_url: string
+  enrichment: {
+    region?: string
+    city?: string
+    primary_okved?: string
+    msp_category?: string
+    staff_count?: string
+    snapshot_date?: string
+    source_url?: string
+    phone?: string
+    email?: string
+    website?: string
+    contact_url?: string
+    contact_source?: string
+    contact_checked_date?: string
+  } | null
   reasons: string[]
   history: {
     participations: number

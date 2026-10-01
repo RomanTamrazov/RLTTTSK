@@ -136,7 +136,13 @@ body {
 .supplier-history div { flex: 1; }
 .supplier-history strong { display: block; font-size: 18px; color: #4e584e; }
 .supplier-history span { font-size: 10px; color: #777469; }
+.supplier-facts, .supplier-contact { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 12px 0; border-bottom: 1px solid #eeece5; font-size: 11px; color: #69675e; }
+.supplier-facts strong { color: #4e584e; }
+.supplier-facts small, .supplier-contact small { margin-top: 4px; color: #777469; }
+.supplier-contact h3 { margin: 0 0 4px; }
+.supplier-facts a, .supplier-contact a { color: #4e584e; }
 .supplier-preview h3 { font-size: 12px; font-weight: 600; margin: 16px 0 8px; }
+.supplier-contact h3 { margin: 0 0 4px; }
 .supplier-reasons { margin: 0 0 14px; padding-left: 16px; font-size: 12px; line-height: 1.6; color: #69675e; }
 .supplier-reasons li + li { margin-top: 4px; }
 .supplier-link { font-size: 12px; color: #4e584e; }

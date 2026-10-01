@@ -5,6 +5,9 @@ type Env = { DB: D1Database; ALLOWED_ORIGINS: string }
 type RecordValue = Record<string, string | number>
 type Catalog = RecordValue & { observed_lots: number; ais_records: number; em_records: number; examples: { text: string; tokens: string[] }[] }
 type External = RecordValue & { supplier_name: string; profile_text: string; source: string; source_url: string; okpd2_codes: string; portal_status: string; portal_offer_count: string; offer_region_match: string; portal_category_match: string }
+type Enrichment = { supplier_name?: string; region?: string; city?: string; primary_okved?: string; msp_category?: string;
+  staff_count?: string; snapshot_date?: string; source_url?: string; phone?: string; email?: string; website?: string;
+  contact_url?: string; contact_source?: string; contact_checked_date?: string }
 type Profile = { global: RecordValue; categories: Record<string, RecordValue>; catalog: Record<string, Catalog>; external?: External }
 type BuyerProfile = Record<string, [number, number, Record<string, number>]>
 type Match = { inn: string; division: string; relevance: number; example: string; catalog?: Catalog; profile: Profile }
@@ -181,11 +184,15 @@ async function search(request: Request, env: Env): Promise<Response> {
     const channels = [number(match.catalog?.em_records) ? 'ЭМ' : '', number(match.catalog?.ais_records) ? 'АИС ГЗ' : ''].filter(Boolean)
     return { match, features, score, source: external?.source || (channels.length ? `История закупок: ${channels.join(', ')}` : 'История закупок: ЭМ') }
   }).sort((a, b) => b.score - a.score)
-  const recommendations = ranked.slice(0, requestedInn ? 1 : topK).map((row, index) => ({
-    rank: index + 1, supplier_inn: row.match.inn, supplier_name: row.match.profile.external?.supplier_name || '',
+  const visible = ranked.slice(0, requestedInn ? 1 : topK)
+  const enriched = await load<Enrichment>(env.DB, visible.map(row => 'e:' + row.match.inn))
+  const recommendations = visible.map((row, index) => ({
+    rank: index + 1, supplier_inn: row.match.inn,
+    supplier_name: row.match.profile.external?.supplier_name || enriched.get('e:' + row.match.inn)?.supplier_name || '',
     profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280), category_division: division || 'unknown',
     rank_score: requestedInn ? null : row.score, source: row.source, source_url: row.match.profile.external?.source_url || '',
     reasons: [...(requestedInn ? ['точное совпадение ИНН поставщика'] : []), ...explain(row.match, row.features)], history: row.features.history,
+    enrichment: enriched.get('e:' + row.match.inn) || null,
   }))
   return json(request, env, { query, category_division: division || null, category_inferred: !explicitDivision, search_fallback: searchFallback, mode, parsed_query: parsedQuery,
     candidate_count: ranked.length, rank_score_is_probability: false, recommendations })
