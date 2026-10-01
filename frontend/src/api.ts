@@ -58,6 +58,7 @@ export interface SearchOptions {
   okpd2_code?: string
   customer_inn?: string
   start_price?: number
+  top_k?: number
 }
 
 export async function searchSuppliers(query: string, signal: AbortSignal, options: SearchOptions = {}): Promise<SearchResult> {

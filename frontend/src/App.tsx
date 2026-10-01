@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { searchSuppliers, type SearchResult } from './api'
-import { downloadResults, downloadTestTemplate, parseTestCsv, type TestCase, type TestResult } from './csvEvaluation'
+import { downloadPurchaseTemplate, downloadRecommendations, parsePurchaseCsv, type PurchaseRecommendations, type PurchaseRow } from './purchaseCsv'
 
 const EXAMPLES = ['ремонт автоэвакуатора ОКПД2 45.20.2', 'медицинские изделия', 'рыбные консервы', 'ИНН 7805198740']
 const title = (supplier: SearchResult['recommendations'][number]) => supplier.supplier_name || `Поставщик ИНН ${supplier.supplier_inn}`
@@ -19,12 +19,14 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [previewHeight, setPreviewHeight] = useState(360)
-  const [testCases, setTestCases] = useState<TestCase[]>([])
-  const [testResults, setTestResults] = useState<TestResult[]>([])
-  const [testProgress, setTestProgress] = useState(0)
-  const [testRunning, setTestRunning] = useState(false)
-  const [testError, setTestError] = useState('')
-  const testController = useRef<AbortController | null>(null)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([])
+  const [purchases, setPurchases] = useState<PurchaseRow[]>([])
+  const [bulkResults, setBulkResults] = useState<PurchaseRecommendations[]>([])
+  const [bulkProgress, setBulkProgress] = useState(0)
+  const [bulkRunning, setBulkRunning] = useState(false)
+  const [bulkError, setBulkError] = useState('')
+  const bulkController = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
@@ -32,33 +34,42 @@ export default function App() {
   const pageCount = Math.max(1, Math.ceil(suppliers.length / 5))
   const pageSuppliers = suppliers.slice(page * 5, page * 5 + 5)
   const selected = focused ? suppliers.find(s => s.supplier_inn === selectedInn) : undefined
-  const labeledResults = testResults.filter(item => item.testCase.expectedInn && item.result)
-  const hitAt1 = labeledResults.filter(item => item.result?.recommendations[0]?.supplier_inn === item.testCase.expectedInn).length
-  const hitAt5 = labeledResults.filter(item => item.result?.recommendations.slice(0, 5).some(candidate => candidate.supplier_inn === item.testCase.expectedInn)).length
+  const recommendedCount = bulkResults.reduce((sum, row) => sum + (row.result?.recommendations.length ?? 0), 0)
 
-  async function loadTestCsv(file?: File) {
-    setTestError(''); setTestResults([]); setTestProgress(0); setTestCases([])
+  async function loadPurchaseCsv(file?: File) {
+    setBulkError(''); setBulkResults([]); setBulkProgress(0); setPurchases([]); setCsvHeaders([])
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { setTestError('Файл больше 2 МБ. Разделите его на части.'); return }
-    try { setTestCases(parseTestCsv(await file.text())) }
-    catch (err) { setTestError(err instanceof Error ? err.message : 'Не удалось прочитать CSV.') }
+    if (file.size > 5 * 1024 * 1024) { setBulkError('Файл больше 5 МБ. Разделите его на части.'); return }
+    try {
+      const parsed = parsePurchaseCsv(await file.text())
+      setCsvHeaders(parsed.headers); setPurchases(parsed.purchases)
+    } catch (err) { setBulkError(err instanceof Error ? err.message : 'Не удалось прочитать CSV.') }
   }
 
-  async function runCsvEvaluation() {
-    if (!testCases.length) return
+  async function recommendFromCsv() {
+    if (!purchases.length) return
     const controller = new AbortController()
-    testController.current = controller; setTestRunning(true); setTestError(''); setTestResults([]); setTestProgress(0)
-    const completed: TestResult[] = []
-    for (const testCase of testCases) {
-      if (controller.signal.aborted) break
-      try { completed.push({ testCase, result: await searchSuppliers(testCase.query, controller.signal, testCase.options) }) }
-      catch (err) {
-        if (controller.signal.aborted) break
-        completed.push({ testCase, error: err instanceof Error ? err.message : 'Ошибка запроса' })
+    bulkController.current = controller; setBulkRunning(true); setBulkError(''); setBulkResults([]); setBulkProgress(0)
+    const rows: (PurchaseRecommendations | undefined)[] = Array(purchases.length)
+    let cursor = 0, completed = 0
+    const work = async () => {
+      while (!controller.signal.aborted) {
+        const index = cursor++
+        if (index >= purchases.length) return
+        const purchase = purchases[index]
+        if (!purchase.query.trim()) rows[index] = { purchase, error: 'Укажите описание закупки или ОКПД2.' }
+        else {
+          try { rows[index] = { purchase, result: await searchSuppliers(purchase.query, controller.signal, purchase.options) } }
+          catch (err) {
+            if (controller.signal.aborted) return
+            rows[index] = { purchase, error: err instanceof Error ? err.message : 'Не удалось получить рекомендации.' }
+          }
+        }
+        completed += 1; setBulkProgress(completed); setBulkResults(rows.filter((row): row is PurchaseRecommendations => Boolean(row)))
       }
-      setTestResults([...completed]); setTestProgress(completed.length)
     }
-    testController.current = null; setTestRunning(false)
+    await Promise.all(Array.from({ length: Math.min(4, purchases.length) }, () => work()))
+    bulkController.current = null; setBulkRunning(false)
   }
 
   useEffect(() => {
@@ -119,21 +130,6 @@ export default function App() {
             {query && <button className="clear-search" aria-label="Очистить поиск" onClick={() => { setQuery(''); inputRef.current?.focus() }}>×</button>}
           </div>
           {!focused && !query && <p className="search-hint">Найдите поставщиков для вашей закупки</p>}
-          {!focused && <section className="csv-test-panel" aria-label="Тестирование модели по CSV">
-            <div className="csv-test-heading"><strong>Проверить модель на CSV</strong><button type="button" className="csv-template" onClick={downloadTestTemplate}>Скачать шаблон</button></div>
-            <p>Файл обрабатывается в браузере. Обязательная колонка — <code>query</code>; для Hit@1/Hit@5 добавьте <code>expected_inn</code>.</p>
-            <label className="csv-upload">{testCases.length ? `Загружено строк: ${testCases.length}` : 'Выбрать CSV'}
-              <input type="file" accept=".csv,text/csv" onChange={event => { void loadTestCsv(event.target.files?.[0]); event.currentTarget.value = '' }} />
-            </label>
-            {testCases.length > 0 && <button type="button" className="csv-run" disabled={testRunning} onClick={() => void runCsvEvaluation()}>{testRunning ? `Проверено ${testProgress} из ${testCases.length}` : 'Запустить проверку'}</button>}
-            {testRunning && <button type="button" className="csv-cancel" onClick={() => testController.current?.abort()}>Остановить</button>}
-            {testError && <p className="csv-error" role="alert">{testError}</p>}
-            {testResults.length > 0 && <div className="csv-summary" role="status">
-              <span>Готово: {testResults.length}/{testCases.length}</span>
-              {labeledResults.length > 0 && <span>Размечено: {labeledResults.length} · Hit@1: {(100 * hitAt1 / labeledResults.length).toFixed(1)}% · Hit@5: {(100 * hitAt5 / labeledResults.length).toFixed(1)}%</span>}
-              <button type="button" className="csv-template" onClick={() => downloadResults(testResults)}>Скачать результаты</button>
-            </div>}
-          </section>}
           {focused && (
             <div id="supplier-results" className="search-dropdown" style={{ minHeight: suppliers.length ? previewHeight : undefined }}>
               {query.trim().length < 2 ? <div className="search-status">
@@ -206,6 +202,51 @@ export default function App() {
             </div>}
           </aside>
         </div>
+        {!focused && <button type="button" className={`bulk-open${bulkOpen ? ' is-open' : ''}`} onClick={() => setBulkOpen(!bulkOpen)}>
+          <span aria-hidden="true">▤</span>{bulkOpen ? 'Свернуть список закупок' : 'Загрузить список закупок CSV'}
+        </button>}
+        {bulkOpen && <section className="bulk-panel" aria-label="Пакетные рекомендации поставщиков">
+          <header className="bulk-header">
+            <div><span className="bulk-kicker">ПОДБОР ДЛЯ СПИСКА ЗАКУПОК</span><h2>Загрузите закупки — получите поставщиков</h2>
+              <p>Для каждой строки подберём до пяти поставщиков, сохраним ваш ID и подготовим CSV с рекомендациями.</p></div>
+            <button type="button" className="csv-template" onClick={downloadPurchaseTemplate}>Скачать шаблон</button>
+          </header>
+          <div className="bulk-controls">
+            <label className="csv-upload">{purchases.length ? `Загружено закупок: ${purchases.length}` : 'Выбрать CSV-файл'}
+              <input type="file" accept=".csv,text/csv" onChange={event => { void loadPurchaseCsv(event.target.files?.[0]); event.currentTarget.value = '' }} />
+            </label>
+            {purchases.length > 0 && <button type="button" className="csv-run" disabled={bulkRunning} onClick={() => void recommendFromCsv()}>{bulkRunning ? `Подбираем ${bulkProgress} из ${purchases.length}` : 'Получить рекомендации'}</button>}
+            {bulkRunning && <button type="button" className="csv-cancel" onClick={() => bulkController.current?.abort()}>Остановить</button>}
+            {bulkResults.length > 0 && !bulkRunning && <button type="button" className="csv-download" onClick={() => downloadRecommendations(csvHeaders, bulkResults)}>Скачать результат CSV</button>}
+          </div>
+          <p className="bulk-format">Поддерживаемые колонки: <code>id</code>, <code>description</code>, <code>okpd2_code</code>, <code>customer_inn</code>, <code>start_price</code>. Русские названия тоже распознаются. Максимум — 200 строк и 5 МБ.</p>
+          {bulkError && <p className="csv-error" role="alert">{bulkError}</p>}
+          {purchases.length > 0 && !bulkResults.length && !bulkRunning && <p className="bulk-ready">Файл готов: {purchases.length} закупок. Нажмите «Получить рекомендации».</p>}
+          {bulkResults.length > 0 && <div className="bulk-summary" role="status"><strong>Готово {bulkResults.length} из {purchases.length}</strong><span>{recommendedCount} рекомендаций · для каждой закупки сохранён свой ID</span></div>}
+          {bulkResults.length > 0 && <div className="bulk-result-list">
+            {bulkResults.map((row, index) => {
+              const top = row.result?.recommendations[0]
+              return <details className="bulk-result" key={`${row.purchase.rowNumber}-${index}`} open={index === 0}>
+                <summary><span className="bulk-id">{row.purchase.id}</span><span className="bulk-query">{row.purchase.query || 'Запрос не указан'}</span>
+                  <span className="bulk-result-count">{row.error ? 'ошибка' : `${row.result?.recommendations.length ?? 0} поставщиков`}</span>
+                  {top && <span className="bulk-top-supplier">№1 {top.supplier_name || `ИНН ${top.supplier_inn}`}</span>}
+                </summary>
+                {row.error ? <p className="bulk-row-error">{row.error}</p> : <div className="bulk-suppliers">
+                  {(row.result?.recommendations ?? []).map(supplier => <article className="bulk-supplier" key={supplier.supplier_inn}>
+                    <span className="bulk-rank">{supplier.rank}</span><div><strong>{supplier.supplier_name || 'Поставщик'}</strong><small>ИНН {supplier.supplier_inn} · ОКПД2 {supplier.category_division}</small>
+                      {supplier.reasons[0] && <small>{supplier.reasons[0]}</small>}
+                      <div className="bulk-links"><a href={companyLookupUrls(supplier.supplier_inn).fns} target="_blank" rel="noreferrer">ЕГРЮЛ ↗</a><a href={companyLookupUrls(supplier.supplier_inn).portal} target="_blank" rel="noreferrer">Портал ↗</a>
+                        {supplier.enrichment?.phone && <a href={`tel:${supplier.enrichment.phone.replace(/[^+\d]/g, '')}`}>Позвонить</a>}
+                        {supplier.enrichment?.email && <a href={`mailto:${supplier.enrichment.email}`}>Email</a>}
+                      </div>
+                    </div>
+                  </article>)}
+                  {!row.result?.recommendations.length && <p className="bulk-row-error">Подходящих кандидатов не найдено. Попробуйте уточнить описание или добавить ОКПД2.</p>}
+                </div>}
+              </details>
+            })}
+          </div>}
+        </section>}
       </div>
     </main>
   )
