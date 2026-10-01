@@ -209,7 +209,7 @@ def save_search_catalog(base: pd.DataFrame, output_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-dir", type=Path, default=ROOT)
+    parser.add_argument("--data-dir", type=Path, default=ROOT.parent.parent)
     parser.add_argument("--prepared", type=Path, default=ROOT / "prepared")
     parser.add_argument("--artifacts", type=Path, default=ROOT / "artifacts")
     args = parser.parse_args()

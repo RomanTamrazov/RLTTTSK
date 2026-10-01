@@ -1,61 +1,63 @@
 # Рекомендатель поставщиков
 
-CatBoost ранжирует компании для закупки по истории побед, категории, заказчику и похожести работ. Веб-интерфейс команды размещается в `frontend/`, Python API — на отдельном сервере.
+CatBoost ранжирует поставщиков по истории, категории, заказчику и сходству работ.
+
+- [Репозиторий команды](https://github.com/RomanTamrazov/RLTTTSK)
+- [Сайт на GitHub Pages](https://romantamrazov.github.io/RLTTTSK/)
+- [Объяснение модели, признаков и метрик](docs/model.md)
 
 ## Структура
 
-| Файл или папка | Назначение |
-| --- | --- |
-| `frontend/` | Сюда сокомандник загружает сайт; сейчас здесь временная страница |
-| `.github/workflows/pages.yml` | Публикация интерфейса на GitHub Pages |
-| `prepare_catboost_data.py` | pandas: очистка CSV, история на дату закупки и профили |
-| `train_catboost.py` | Обучение CatBoost и оценка ранжирования |
-| `site_api.py` | `GET /health`, `POST /search`, `POST /recommend` |
-| `model_schema.py` | Общий список признаков обучения и API |
-| `query_parser.py` | Текст, ИНН и ОКПД2 из одной строки |
-| `artifacts/` | Локальная модель и профили; в Git включены только отчёт и важности |
+```text
+backend/       Python: подготовка данных, обучение и API
+frontend/      Сайт сокомандника и инструкция по загрузке
+docs/         Объяснение подхода и признаков
+.github/       Автоматическая публикация GitHub Pages
+```
 
-Схема данных, признаки и метрики подробно описаны в [объяснении модели](ОБЪЯСНЕНИЕ_МОДЕЛИ.md). Команды и контракт API — в [инструкции](README_рекомендатель.md).
+В `backend/artifacts/` находятся модель, профили поставщиков и отчёт; в `backend/prepared/` — выборка для обучения. В Git включены только код, документация, отчёт и важности признаков. Исходные три CSV хранятся отдельно от проекта. После клонирования нужно получить готовые артефакты от команды или построить их заново.
 
-## Запуск модели локально
+## Запуск
 
-Нужен Python 3.11+. Исходные три CSV из выгрузки хранятся локально и исключены из Git.
+Все команды выполняются из корня проекта. Нужен Python 3.11+.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-python prepare_catboost_data.py --data-dir /путь/к/исходным/csv
-python train_catboost.py
-uvicorn site_api:app --host 127.0.0.1 --port 8000
+python -m pip install -r backend/requirements.txt
+uvicorn site_api:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
-Интерактивный контракт API: `http://127.0.0.1:8000/docs`. Можно передать одну строку:
+API: `http://127.0.0.1:8000/docs`. `GET /health` проверяет наличие модели и профилей; `POST /search` ищет и ранжирует поставщиков; `POST /recommend` ранжирует переданный список компаний.
+
+Пример тела запроса к `/search`:
 
 ```json
 {"query":"ремонт автоэвакуатора ОКПД2 45.20.2 ИНН заказчика 7842019044","top_k":10}
 ```
 
-Для отдельного сервера API есть Dockerfile:
+`ИНН 7805198740` ищет конкретного поставщика, `45.20.2` открывает категорию. Ответ содержит разобранный запрос, рекомендации, относительный балл и объяснения. Балл не является вероятностью победы.
+
+## Подготовка и обучение
+
+Укажите папку с `Извещения_24-25.csv`, `Поставщики_24-25.csv` и `ТРУ_24-25.csv`:
 
 ```bash
-docker build -t supplier-recommender .
-docker run --rm -p 8000:8000 -v "$PWD/artifacts:/app/artifacts:ro" supplier-recommender
+python backend/prepare_catboost_data.py --data-dir /путь/к/исходным/csv
+python backend/train_catboost.py
 ```
 
-Модель обучается по меткам ЭМ; АИС ГЗ дополняет каталог поиска. Исторические результаты рассчитываются строго из более ранних закупок. Метрики в `artifacts/training_report.json` относятся к ранжированию записанных участников, а не ко всему рынку.
+Обучение использует метки ЭМ; АИС ГЗ дополняет каталог поиска. История считается только из более ранних закупок. Текущий Hit@1 на validation 2025 года — **65,44%**, при скрытой истории — **39,15%**. Это оценка ранжирования записанных участников, а не всего рынка.
 
-## Репозиторий и GitHub Pages
-
-Репозиторий команды: [RomanTamrazov/RLTTTSK](https://github.com/RomanTamrazov/RLTTTSK). Для новой локальной копии:
+## Сервер модели
 
 ```bash
-git clone git@github.com:RomanTamrazov/RLTTTSK.git
-cd RLTTTSK
+docker build -t supplier-recommender backend
+docker run --rm -p 8000:8000 -v "$PWD/backend/artifacts:/app/artifacts:ro" supplier-recommender
 ```
 
-В репозитории уже выбран **Settings → Pages → Source → GitHub Actions**. Адрес интерфейса: https://romantamrazov.github.io/RLTTTSK/. Workflow публикует только `frontend/` или результат её сборки. Это соответствует [официальному способу публикации Pages через Actions](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+Для API нужна вся папка артефактов одной версии: модель, профили, каталог и `training_report.json`. Не помещайте её в `frontend/`.
 
-Сокомандник заменяет временную страницу своим сайтом по [инструкции в frontend](frontend/README.md). После его коммита подключим интерфейс к отдельному HTTPS API: адрес сервера, CORS и карточки рекомендаций. GitHub Pages исполняет статический интерфейс; Python-модель запускается на сервере API.
+## Сайт команды
 
-Исходные данные, подготовленная выборка и профили не попадут в коммит благодаря `.gitignore`. После клонирования серверу API понадобится локальная папка `artifacts/` одной версии: получить её от команды или заново подготовить данные и обучить модель.
+Сокомандник загружает интерфейс в [frontend/](frontend/README.md). GitHub Pages уже настроен: после коммита сайта в `main` workflow публикует HTML или сборку Vite/React. Подключение к отдельному HTTPS API сделаем следующим коммитом после загрузки интерфейса.

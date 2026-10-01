@@ -6,11 +6,9 @@ __pycache__/
 .env.*
 !.env.example
 /*.csv
-/prepared/
-/artifacts/*
-!/artifacts/README.md
-!/artifacts/training_report.json
-!/artifacts/feature_importance.csv
-!/artifacts/model_comparison.json
+/backend/prepared/
+/backend/artifacts/*
+!/backend/artifacts/training_report.json
+!/backend/artifacts/feature_importance.csv
 node_modules/
 frontend/dist/
