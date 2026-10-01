@@ -79,6 +79,16 @@ export default function App() {
             <p className="search-hint">Опишите закупку или введите ИНН / ОКПД2</p>
             {!query && <div className="query-examples">{EXAMPLES.map(example => <button className="query-example" key={example} onClick={() => { setQuery(example); inputRef.current?.focus() }}>{example}</button>)}</div>}
           </section>
+          <details className="method-panel">
+            <summary>Как формируется выдача</summary>
+            <div className="method-grid">
+              <div><strong>1. Совпадение с закупкой</strong><span>Текст закупки сравнивается с прошлым опытом поставщика, а ОКПД2 задаёт раздел товаров или работ.</span></div>
+              <div><strong>2. Подтверждённый опыт</strong><span>Учитываются участия и победы в ЭМ: в целом, в нужном разделе и у этого заказчика.</span></div>
+              <div><strong>3. Свежесть</strong><span>Более свежая активность получает преимущество, чтобы старый опыт не вытеснял актуальных поставщиков.</span></div>
+              <div><strong>4. CatBoost</strong><span>Модель учит порядок кандидатов на исторических закупках, а не обещает гарантированную победу.</span></div>
+            </div>
+            <p className="method-note">ФНС, контакты и ссылки помогают проверить компанию, но не накручивают её модельный балл. Записи АИС ГЗ используются как каталог опыта, потому что в них нет полного списка проигравших.</p>
+          </details>
           <div className={`search-layout${focused ? ' is-open' : ''}${selected ? ' has-preview' : ''}`}>
             {selected && <div className="search-hover-area" aria-hidden="true" style={{ height: `calc(100% + ${previewHeight + 12}px)` }} />}
             {focused && query.trim().length >= 2 && (

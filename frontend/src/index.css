@@ -39,6 +39,13 @@ body {
 .query-label { margin: 0 0 9px 18px; color: #4e584e; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .query-examples { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 18px 0; }
 .query-examples .query-example { width: auto; padding: 3px 0; font-size: 12px; }
+.method-panel { margin: 2px 0 18px; border: 1px solid #dfdcd3; border-radius: 14px; background: #fffefaad; color: #69675e; font-size: 12px; }
+.method-panel summary { padding: 11px 16px; color: #4e584e; cursor: pointer; font-weight: 600; list-style-position: inside; }
+.method-panel[open] summary { border-bottom: 1px solid #eeece5; }
+.method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; padding: 14px 16px 8px; }
+.method-grid div { display: flex; flex-direction: column; gap: 3px; line-height: 1.45; }
+.method-grid strong { color: #4e584e; font-size: 12px; }
+.method-note { margin: 0; padding: 0 16px 14px; line-height: 1.5; }
 
 .search-shell {
   position: relative;
@@ -110,6 +117,7 @@ body {
   .company-title { font-size: 52px !important; }
   .search-input { font-size: 15px !important; }
   .city-background { object-position: 48% bottom; }
+  .method-grid { grid-template-columns: 1fr; }
 }
 
 .app { min-height: 100vh; position: relative; display: flex; flex-direction: column; align-items: center; padding: clamp(48px, 12vh, 120px) 0 40px; overflow-x: clip; }
