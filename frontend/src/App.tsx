@@ -86,8 +86,9 @@ function LotCandidate({ supplier, row }: { supplier: Supplier; row: PurchaseReco
     </button>
     <div className="candidate-actions"><Contacts supplier={supplier} expanded />
       <div className="source-links"><a href={links.fns} target="_blank" rel="noreferrer">Компания в ФНС ↗</a><a href={links.portal} target="_blank" rel="noreferrer">На портале ↗</a></div></div>
-    {expanded && <div className="candidate-expanded"><div className="candidate-evidence"><div><strong>{supplier.history.participations}</strong><span>участий в ЭМ</span></div>
+    {expanded && <div className="candidate-expanded">{supplier.history_available ? <div className="candidate-evidence"><div><strong>{supplier.history.participations}</strong><span>участий в ЭМ</span></div>
       <div><strong>{supplier.history.wins}</strong><span>побед в ЭМ</span></div><div><strong>{supplier.history.buyer_participations}</strong><span>у этого заказчика</span></div></div>
+      : <p className="muted">История поставщика пока недоступна в подключённом сервисе.</p>}
       <h4>Почему подходит</h4><ul className="reasons">{supplier.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
       <HistoryTrail supplier={supplier} /></div>}
   </article>
@@ -368,8 +369,8 @@ export default function App() {
                 <div className="card-head"><span className="rank">#{supplier.rank}</span><div><button className="supplier-name" onClick={() => openSupplier(supplier)}>{supplierTitle(supplier)}</button>
                   <p>ИНН {supplier.supplier_inn}{supplier.enrichment?.city && ' · ' + supplier.enrichment.city}</p></div>
                   <button className={'save-button' + (isSaved ? ' saved' : '')} aria-label={isSaved ? 'Убрать из выбранных' : 'Добавить в выбранные'} aria-pressed={isSaved} onClick={() => toggleSave(supplier)}><Icon name={isSaved ? 'check' : 'plus'} /></button></div>
-                <div className="evidence-line"><span className="evidence-tag">{supplier.history.participations > 0 ? 'История конкурентных закупок' : 'Без истории конкуренции в ЭМ'}</span>
-                  <span>{supplier.history.category_wins} побед в категории</span></div>
+      <div className="evidence-line"><span className="evidence-tag">{!supplier.history_available ? 'История недоступна' : supplier.history.participations > 0 ? 'История конкурентных закупок' : 'Без истории конкуренции в ЭМ'}</span>
+                  <span>{supplier.history_available ? `${supplier.history.category_wins} побед в категории` : 'Нет данных о победах'}</span></div>
                 <p className="card-description">{supplier.profile_excerpt || supplier.reasons[0]}</p>
                 <Price supplier={supplier} compact />
                 <Contacts supplier={supplier} expanded />
@@ -404,7 +405,8 @@ export default function App() {
                     : 'В АИС ГЗ есть запись о поставщике; конкурентный исход не подтверждён.'}</small></details>}
             </section>
             <section className="detail-section"><h3>Опыт в закупках ЭМ</h3><div className="history-stats"><div><strong>{selected.history.participations}</strong><span>участий</span></div><div><strong>{selected.history.wins}</strong><span>побед</span></div><div><strong>{selected.history.category_wins}</strong><span>в категории</span></div></div>
-              {!selected.history.participations && <p className="muted">Отсутствие истории ЭМ не означает, что компания новая. Оценивайте её профиль и источники.</p>}
+              {!selected.history_available ? <p className="muted">История поставщика пока недоступна в подключённом сервисе.</p>
+                : !selected.history.participations && <p className="muted">Отсутствие истории ЭМ не означает, что компания новая. Оценивайте её профиль и источники.</p>}
               {tab === 'search' && applied?.options.customer_inn && <div className="buyer-experience"><strong>С выбранным заказчиком</strong>
                 <CustomerLinks inn={applied.options.customer_inn} compact />
                 <span>{selected.history.buyer_participations} участий в ЭМ · {selected.history.buyer_wins} побед по архиву</span></div>}
@@ -435,8 +437,8 @@ export default function App() {
       <div className="compare-table-wrap"><table className="compare-table"><thead><tr><th>Критерий</th>{compare.map(s => <th key={s.supplier_inn}>{supplierTitle(s)}<small>ИНН {s.supplier_inn}</small></th>)}</tr></thead><tbody>
         <tr><th>Контакты</th>{compare.map(s => <td key={s.supplier_inn}><Contacts supplier={s} expanded /></td>)}</tr>
         <tr><th>Цена / ориентир</th>{compare.map(s => <td key={s.supplier_inn}><Price supplier={s} /></td>)}</tr>
-        <tr><th>Опыт в ЭМ</th>{compare.map(s => <td key={s.supplier_inn}>{s.history.participations} участий · {s.history.wins} побед<br />{s.history.category_wins} побед в категории</td>)}</tr>
-        <tr><th>Опыт у заказчика</th>{compare.map(s => <td key={s.supplier_inn}>{s.history.buyer_participations ? s.history.buyer_participations + ' участий · ' + s.history.buyer_wins + ' побед' : 'Не найден / заказчик не указан'}</td>)}</tr>
+        <tr><th>Опыт в ЭМ</th>{compare.map(s => <td key={s.supplier_inn}>{s.history_available ? `${s.history.participations} участий · ${s.history.wins} побед · ${s.history.category_wins} в категории` : 'Недоступен'}</td>)}</tr>
+        <tr><th>Опыт у заказчика</th>{compare.map(s => <td key={s.supplier_inn}>{!s.history_available ? 'Недоступен' : s.history.buyer_participations ? s.history.buyer_participations + ' участий · ' + s.history.buyer_wins + ' побед' : 'Не найден / заказчик не указан'}</td>)}</tr>
         <tr><th>Соответствие</th>{compare.map(s => <td key={s.supplier_inn}>{s.reasons.slice(0, 3).join(' · ')}</td>)}</tr>
         <tr><th>Источник</th>{compare.map(s => <td key={s.supplier_inn}>{s.source}</td>)}</tr>
         <tr><th>Короткий список</th>{compare.map(s => <td key={s.supplier_inn}><button className="button secondary" onClick={() => toggleSave(s)}>{saved.some(row => row.supplier.supplier_inn === s.supplier_inn) ? 'Убрать из выбранных' : 'Добавить в выбранные'}</button></td>)}</tr>

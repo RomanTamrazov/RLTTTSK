@@ -6,6 +6,7 @@ export interface Supplier {
   category_division: string
   rank_score: number | null
   has_contacts?: boolean
+  history_available?: boolean
   offer?: { title: string; price: string; price_unit: string; price_note: string; availability: string; offer_url: string; offer_checked_date: string } | null
   source: string
   source_url: string
@@ -128,6 +129,22 @@ export async function searchSuppliers(query: string, signal: AbortSignal, option
   const data = await response.json()
   if (!response.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : 'Не удалось выполнить поиск.', response.status, Math.min(10000, Math.max(1000, Number(response.headers.get('Retry-After') || 1) * 1000)))
   if (!Array.isArray(data.recommendations)) throw new ApiError('Сервис вернул некорректный ответ.', 502)
+  data.recommendations = data.recommendations.map((raw: Partial<Supplier>) => {
+    const hasHistory = Boolean(raw.history && typeof raw.history.participations === 'number')
+    return {
+      ...raw,
+      profile_excerpt: raw.profile_excerpt || '',
+      source: raw.source || 'Архив закупок',
+      source_url: raw.source_url || '',
+      enrichment: raw.enrichment || null,
+      reasons: Array.isArray(raw.reasons) ? raw.reasons : [],
+      history_available: hasHistory,
+      history: raw.history || { participations: 0, wins: 0, category_participations: 0, category_wins: 0,
+        buyer_participations: 0, buyer_wins: 0, buyer_category_wins: 0 },
+      history_examples: Array.isArray(raw.history_examples) ? raw.history_examples : [],
+      pricing: raw.pricing || { status: 'on_request' as const, historical_purchase: null },
+    }
+  })
   return data
   } catch (error) {
     if (signal.aborted) throw new DOMException('Остановлено', 'AbortError')

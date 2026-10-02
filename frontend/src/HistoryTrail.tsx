@@ -27,7 +27,9 @@ export default function HistoryTrail({ supplier }: { supplier: Supplier }) {
           <CustomerLinks inn={item.customer_inn} compact />
         </li>)}</ol>
         <p className="history-footnote">В ЭМ статус взят из поля is_winner. Для АИС ГЗ исход конкурентного отбора по этим данным не подтверждён. Бюджет лота не является ценой предложения компании.</p>
-      </> : <p className="muted">По выбранной категории примеров лотов нет. Нулевой счётчик ЭМ не означает, что компания новая.</p>}
+      </> : <p className="muted">{supplier.history_available === false
+        ? 'История поставщика пока недоступна в подключённом сервисе.'
+        : 'По выбранной категории примеров лотов нет. Нулевой счётчик ЭМ не означает, что компания новая.'}</p>}
     </div>
   </details>
 }
