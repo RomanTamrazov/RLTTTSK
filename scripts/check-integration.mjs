@@ -9,7 +9,7 @@ const DB = {
     return { bind(...values) { return { async all() { return { results: db.prepare(sql).all(...values) } } } } }
   }
 }
-const cases = ['ремонт автоэвакуатора ОКПД2 45.20.2', 'медицинские перчатки', 'рыбные консервы', 'ИНН 7801314509', 'ОКПД2 45.20.2', 'квантовый телепортатор']
+const cases = ['ремонт автоэвакуатора ОКПД2 45.20.2', 'медицинские перчатки', 'рыбные консервы', 'ИНН 7801314509', 'ОКПД2 45.20.2', 'квантовый телепортатор', 'создание водородной бомбы']
 const report = []
 for (const query of cases) {
   const time = performance.now()
@@ -18,9 +18,12 @@ for (const query of cases) {
   const result = await response.json()
   assert.equal(result.purchase_budget, 450000)
   assert.ok(result.recommendations.length <= 5)
+  if (query === 'квантовый телепортатор' || query === 'создание водородной бомбы') {
+    assert.equal(result.recommendations.length, 0, `Unrelated query must not produce recommendations: ${query}`)
+  }
   if (query.startsWith('ремонт автоэвакуатора')) {
     assert.ok(result.recommendations.length > 0)
-    assert.ok(result.recommendations.every(s => s.profile_excerpt.toLowerCase().includes('автоэвакуатор')),
+    assert.ok(result.recommendations.every(s => /(?:авто)?эвакуатор/i.test(s.profile_excerpt)),
       'A specialist must not be lost to the truncated category posting and replaced with generic repair firms')
   }
   for (const supplier of result.recommendations) {

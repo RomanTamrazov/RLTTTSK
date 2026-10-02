@@ -15,7 +15,10 @@ __pycache__/
 !/backend/artifacts/supplier_contacts.csv
 !/backend/artifacts/external_supplier_pool.csv
 !/backend/artifacts/supplier_source_import_template.csv
-node_modules/
+node_modules
+/.local-build/
+/input_samples
+/qa/
 frontend/dist/
 /cloudflare/generated/*
 !/cloudflare/generated/model.json

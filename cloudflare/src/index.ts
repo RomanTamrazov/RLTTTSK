@@ -95,6 +95,14 @@ function nearbyTerms(text: string, terms: Set<string>): boolean {
   }
   return false
 }
+function relevantExcerpt(text: string, terms: Set<string>, limit = 280): string {
+  if (text.length <= limit) return text
+  const lower = text.toLowerCase().replaceAll('ё', 'е')
+  const focus = [...terms].sort((a, b) => b.length - a.length)
+    .map(term => lower.indexOf(term)).find(index => index >= 0) ?? 0
+  const start = Math.min(Math.max(0, focus - 70), text.length - limit)
+  return `${start ? '…' : ''}${text.slice(start, start + limit)}${start + limit < text.length ? '…' : ''}`
+}
 function featureValues(match: Match, division: string, purchaseTerms: Set<string>, buyer: BuyerProfile | undefined, customer: string, price: number) {
   const global = match.profile.global || {}, category = match.profile.categories[division] || {}
   const relation = customer ? buyer?.[customer] : undefined
@@ -167,6 +175,13 @@ async function search(request: Request, env: Env): Promise<Response> {
   const explicitDivision = explicitCode.slice(0, 2)
   const requestedInn = parsed.supplier_inn
   const animalQuery = animalProduct(parsed.purchase_text)
+  const originalTerms = tokens(parsed.purchase_text)
+  // Typo expansion is useful, but a candidate must still match words the buyer
+  // actually entered. This prevents an unrelated catalog result when every
+  // distinctive word was replaced by a fuzzy neighbor.
+  const requiredOriginalWords = Math.min(2, Math.max(1, originalTerms.size - 1))
+  const grounded = (text: string) => !originalTerms.size || [...originalTerms]
+    .filter(term => tokens(text).has(term)).length >= requiredOriginalWords
   const queryTerms = searchTerms(parsed.purchase_text)
   if (!queryTerms.size && !explicitDivision && !requestedInn) throw new InputError('Укажите предмет закупки, код ОКПД2 или ИНН поставщика.')
   const mode = requestedInn ? 'supplier_lookup' : queryTerms.size ? 'recommendations' : 'category_browse'
@@ -230,6 +245,7 @@ async function search(request: Request, env: Env): Promise<Response> {
       // keep at least one matching product/experience word to avoid bad fits.
       if (!best.text && !requestedInn && queryTerms.size) continue
       const example = best.text || (codeMatch ? catalog.examples?.[0]?.text || '' : '')
+      if (!requestedInn && queryTerms.size && !grounded(example)) continue
       if (!requestedInn && (animalProduct(example) && !animalQuery || packageMismatch(parsed.package_size, parsed.package_unit, example))) continue
       matches.push({ inn, division, relevance: Math.max(best.relevance, codeMatch ? 0.18 : 0), example, catalog, profile, codeMatch })
       found = true
@@ -245,7 +261,8 @@ async function search(request: Request, env: Env): Promise<Response> {
           .map(text => ({ text, offer: undefined as Offer | undefined }))
           .concat(externalOffers.map(offer => ({ text: offer.title, offer })))
         for (const { text: snippet, offer } of snippets) {
-          if (!requestedInn && (animalProduct(snippet) && !animalQuery || packageMismatch(parsed.package_size, parsed.package_unit, snippet))) continue
+          if (!requestedInn && (animalProduct(snippet) && !animalQuery || packageMismatch(parsed.package_size, parsed.package_unit, snippet)
+            || queryTerms.size && !grounded(snippet))) continue
           const snippetTerms = tokens(snippet)
           if (queryTerms.size && ([...queryTerms].filter(term => snippetTerms.has(term)).length < requiredExternalTerms
             || mustMatch.some(term => !snippetTerms.has(term)))) continue
@@ -262,7 +279,7 @@ async function search(request: Request, env: Env): Promise<Response> {
   }
   // When several suppliers match every product word, omit broad one-word
   // fallbacks (for example ordinary vehicle repair for tow-truck repair).
-  if (!explicitCode && queryTerms.size > 1) {
+  if (queryTerms.size > 1) {
     const precise = matches.filter(match => nearbyTerms(match.example, queryTerms))
     if (new Set(precise.map(match => match.inn)).size >= 3) matches.splice(0, matches.length, ...precise)
   }
@@ -288,15 +305,12 @@ async function search(request: Request, env: Env): Promise<Response> {
       .sort((a, b) => lexicalRelevance(queryTerms, tokens(b.title), weights) - lexicalRelevance(queryTerms, tokens(a.title), weights))[0])
     return { match, features, score, matchedOffer }
   })
-  const contactFloor = Math.max(0.28, Math.max(...ranked.map(row => row.match.relevance)) * 0.65)
   const hasContact = (row: typeof ranked[number]) => Boolean(
     row.match.profile.external?.contact_phone || row.match.profile.external?.contact_email
     || enriched.get('e:' + row.match.inn)?.phone || enriched.get('e:' + row.match.inn)?.email,
   )
   ranked.sort((a, b) => {
-    const contactPriorityA = Number(a.match.relevance >= contactFloor && hasContact(a))
-    const contactPriorityB = Number(b.match.relevance >= contactFloor && hasContact(b))
-    return contactPriorityB - contactPriorityA || b.match.relevance - a.match.relevance || b.score - a.score
+    return b.match.relevance - a.match.relevance || b.score - a.score || Number(hasContact(b)) - Number(hasContact(a))
   })
   const visible = ranked.slice(0, requestedInn ? 1 : topK)
   const visibleDivisions = new Set(visible.map(row => row.match.division))
@@ -304,7 +318,7 @@ async function search(request: Request, env: Env): Promise<Response> {
   const recommendations = visible.map((row, index) => ({
     rank: index + 1, supplier_inn: row.match.inn,
     supplier_name: row.match.profile.external?.supplier_name || enriched.get('e:' + row.match.inn)?.supplier_name || '',
-    profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280),
+    profile_excerpt: relevantExcerpt(row.match.example || row.features.profileText, queryTerms),
     category_division: row.match.division,
     rank_score: requestedInn ? null : row.score,
     source: row.match.profile.external?.source || (row.match.catalog?.em_records ? 'История закупок: ЭМ' : 'История закупок: АИС ГЗ'),
