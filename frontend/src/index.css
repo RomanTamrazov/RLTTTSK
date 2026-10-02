@@ -507,13 +507,18 @@ h2 { font-size: 28px; }
 .upload-area.has-files .upload-button small { max-width: none; }
 .staged-files { margin: 14px 0 0; border: 1px solid #dce8d8; border-radius: 10px; background: #fbfdfa; padding: 14px; }
 .staged-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; color: #315440; }
-.staged-heading button { border: 0; background: transparent; padding: 5px; color: #476e55; font-size: 12px; text-decoration: underline; }
+.staged-heading button { border: 1px solid #e8d6d0; border-radius: 6px; background: #fffaf8; padding: 7px 10px; color: #8c5045; font-size: 11px; cursor: pointer; }
+.staged-heading button:hover { background: #fcebe7; }
+.staged-heading button:disabled, .staged-files li button:disabled, .clear-restored:disabled { cursor: default; opacity: .55; }
 .staged-files ul { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 12px 0 0; }
 .staged-files li { display: inline-flex; gap: 8px; align-items: center; min-width: 0; max-width: min(100%, 380px); background: #edf4eb; border: 1px solid #dce9d9; border-radius: 8px; padding: 7px 8px 7px 10px; color: #365943; font-size: 12px; }
 .staged-files li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .staged-files li small { flex: 0 0 auto; color: #657966; font-size: 11px; }
-.staged-files li button { flex: 0 0 auto; display: inline-grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 5px; background: #fff; color: #506f55; font-size: 18px; line-height: 1; }
+.staged-files li button { flex: 0 0 auto; display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid #e8d6d0; border-radius: 6px; background: #fffaf8; color: #8c5045; font-size: 19px; line-height: 1; cursor: pointer; }
 .staged-files li button:hover { background: #fcebe7; color: #8c453c; }
+.restored-files { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.clear-restored { flex: 0 0 auto; border: 1px solid #e8d6d0; border-radius: 6px; background: #fffaf8; padding: 7px 10px; color: #8c5045; font-size: 11px; cursor: pointer; }
+.clear-restored:hover { background: #fcebe7; }
 .upload-summary { margin: 11px 0 0; color: #345b42; font-size: 13px; font-weight: 600; }
 .upload-hint { margin: 10px 0 0; background: #edf5e9; border-left: 3px solid #5d996a; border-radius: 5px; padding: 10px 12px; color: #355c40; font-size: 13px; line-height: 1.5; }
 .provisional-note { margin: 0 0 16px; padding: 11px 13px; border-left: 3px solid #8a9f64; border-radius: 5px; background: #f3f6e9; color: #536548; font-size: 13px; line-height: 1.5; }

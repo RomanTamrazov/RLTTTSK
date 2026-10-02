@@ -327,12 +327,13 @@ export default function App() {
             <input aria-label="Загрузить CSV" type="file" accept=".csv,text/csv" multiple disabled={bulkRunning || uploading}
               onChange={event => { addCsv(Array.from(event.target.files || [])); event.currentTarget.value = '' }} />
           </label>
-          {stagedFiles.length > 0 && <div className="staged-files"><div className="staged-heading"><strong>В наборе {stagedFiles.length} CSV</strong><button type="button" disabled={bulkRunning || uploading} onClick={clearCsv}>Очистить набор</button></div>
+          {stagedFiles.length > 0 && <div className="staged-files"><div className="staged-heading"><strong>В наборе {stagedFiles.length} CSV</strong><button type="button" disabled={bulkRunning || uploading} onClick={clearCsv}>Очистить все CSV</button></div>
             <ul>{stagedFiles.map((file, index) => <li key={fileKey(file)}><span title={file.name}>{file.name}</span><small>{Math.max(1, Math.round(file.size / 1024))} КБ</small>
               <button type="button" aria-label={'Убрать файл ' + file.name} disabled={bulkRunning || uploading} onClick={() => removeCsv(index)}>×</button></li>)}</ul></div>}
           {fileName && <p className="upload-summary">{fileName}</p>}
           {uploadHint && <p className="upload-hint" role="status">{uploadHint}</p>}
-          {!stagedFiles.length && bulkRows.length > 0 && <p className="upload-hint" role="status">Результаты восстановлены после обновления страницы. Чтобы добавить новые файлы к этому набору, выберите исходные CSV заново.</p>}
+          {!stagedFiles.length && bulkRows.length > 0 && <div className="restored-files" role="status"><p className="upload-hint">Результаты восстановлены после обновления страницы. Чтобы добавить новые файлы к этому набору, выберите исходные CSV заново.</p>
+            <button className="clear-restored" type="button" disabled={bulkRunning || uploading} onClick={clearCsv}>Очистить загруженные данные</button></div>}
         </div>
         {!!importWarnings.length && <div className="import-warnings" role="status">{importWarnings.map(warning => <p key={warning}>{warning}</p>)}</div>}
         <p className="muted csv-help">Лоты и результаты сохраняются в этой вкладке. Для поиска сервису передаются описание закупки и заполненные параметры.</p>
