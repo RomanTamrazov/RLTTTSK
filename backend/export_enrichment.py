@@ -42,11 +42,13 @@ def main() -> None:
                                            ("contact_phone", "phone"),
                                            ("contact_email", "email"),
                                            ("website", "website"),
-                                           ("source_url", "contact_url"),
+                                           ("contact_url", "contact_url"),
                                            ("contact_source", "contact_source"),
                                            ("contact_checked_date", "contact_checked_date")):
                 if row.get(source_key):
                     data[target_key] = row[source_key]
+            if not data.get("contact_url") and row.get("source_url"):
+                data["contact_url"] = row["source_url"]
     # Give every historical supplier a useful, date-bounded activity signal and
     # safe discovery links even when FNS or a public contact was not found.
     if args.catalog.exists():

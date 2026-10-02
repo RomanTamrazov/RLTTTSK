@@ -4,7 +4,7 @@ import { parseQuery } from './query'
 type Env = { DB: D1Database; ALLOWED_ORIGINS: string }
 type RecordValue = Record<string, string | number>
 type Catalog = RecordValue & { observed_lots: number; ais_records: number; em_records: number; okpd2_codes: string[]; examples: { text: string; tokens: string[] }[] }
-type External = RecordValue & { supplier_name: string; profile_text: string; source: string; source_url: string; okpd2_codes: string; portal_status: string; portal_offer_count: string; offer_region_match: string; portal_category_match: string }
+type External = RecordValue & { supplier_name: string; profile_text: string; source: string; source_url: string; okpd2_codes: string; portal_status: string; portal_offer_count: string; offer_region_match: string; portal_category_match: string; offers_json?: string }
 type Enrichment = { supplier_name?: string; region?: string; city?: string; primary_okved?: string; msp_category?: string;
   staff_count?: string; snapshot_date?: string; source_url?: string; phone?: string; email?: string; website?: string;
   contact_url?: string; contact_source?: string; contact_checked_date?: string; last_activity?: string;
@@ -13,7 +13,7 @@ type Enrichment = { supplier_name?: string; region?: string; city?: string; prim
 type Offer = { title: string; price: string; price_unit: string; price_note: string; availability: string; offer_url: string; offer_checked_date: string }
 type Profile = { global: RecordValue; categories: Record<string, RecordValue>; catalog: Record<string, Catalog>; external?: External }
 type BuyerProfile = Record<string, [number, number, Record<string, number>]>
-type Match = { inn: string; division: string; relevance: number; example: string; catalog?: Catalog; profile: Profile; codeMatch?: boolean }
+type Match = { inn: string; division: string; relevance: number; example: string; catalog?: Catalog; profile: Profile; codeMatch?: boolean; offer?: Offer }
 
 class InputError extends Error { constructor(message: string) { super(message) } }
 const digits = /^\d{10}(?:\d{2})?$/
@@ -64,6 +64,13 @@ function divisions(profile: Profile): string[] {
   const codes = profile.external?.okpd2_codes
   if (!codes) return []
   try { return (JSON.parse(codes) as string[]).map(code => String(code).split('.')[0]) } catch { return [] }
+}
+function offers(external: External): Offer[] {
+  const primary = external.offer_title && external.offer_checked_date ? [{ title: String(external.offer_title), price: String(external.offer_price || ''),
+    price_unit: String(external.offer_price_unit || ''), price_note: String(external.offer_price_note || ''),
+    availability: String(external.offer_availability || ''), offer_url: String(external.offer_url || external.source_url),
+    offer_checked_date: String(external.offer_checked_date) }] : []
+  try { return primary.concat(JSON.parse(external.offers_json || '[]') as Offer[]) } catch { return primary }
 }
 function bestExample(queryTerms: Set<string>, catalog: Catalog, requiredWords: number, weights: Map<string, number>, mustMatch: string[]): { relevance: number; text: string } {
   if (!queryTerms.size) return { relevance: 0, text: catalog.examples?.[0]?.text || '' }
@@ -201,21 +208,22 @@ async function search(request: Request, env: Env): Promise<Response> {
     if (profile.external) {
       for (const division of divisions(profile)) {
         if (explicitDivision && division !== explicitDivision) continue
-        const externalText = `${profile.external.profile_text} ${profile.external.offer_title || ''}`
-        if (!requestedInn && (animalProduct(externalText) && !animalQuery || packageMismatch(parsed.package_size, parsed.package_unit, externalText))) continue
+        const externalOffers = offers(profile.external)
         const requiredExternalTerms = explicitCode || searchFallback ? 1 : Math.min(2, queryTerms.size)
-        let best = { relevance: 0, text: profile.external.profile_text }
-        const snippets = [profile.external.profile_text, String(profile.external.offer_title || ''),
-          ...profile.external.profile_text.split(/[.;]/).map(text => text.trim()).filter(Boolean)]
-        for (const snippet of snippets) {
+        let best: { relevance: number; text: string; offer?: Offer } = { relevance: 0, text: profile.external.profile_text }
+        const snippets = [profile.external.profile_text, ...profile.external.profile_text.split(/[.;]/).map(text => text.trim()).filter(Boolean)]
+          .map(text => ({ text, offer: undefined as Offer | undefined }))
+          .concat(externalOffers.map(offer => ({ text: offer.title, offer })))
+        for (const { text: snippet, offer } of snippets) {
+          if (!requestedInn && (animalProduct(snippet) && !animalQuery || packageMismatch(parsed.package_size, parsed.package_unit, snippet))) continue
           const snippetTerms = tokens(snippet)
           if (queryTerms.size && ([...queryTerms].filter(term => snippetTerms.has(term)).length < requiredExternalTerms
             || mustMatch.some(term => !snippetTerms.has(term)))) continue
           const relevance = lexicalRelevance(queryTerms, snippetTerms, weights)
-          if (relevance > best.relevance) best = { relevance, text: snippet }
+          if (relevance >= best.relevance && relevance > 0) best = { relevance, text: snippet, offer }
         }
         if (!requestedInn && queryTerms.size && best.relevance === 0) continue
-        matches.push({ inn, division, relevance: best.relevance, example: best.text, profile })
+        matches.push({ inn, division, relevance: best.relevance, example: best.text, profile, offer: best.offer })
         found = true
       }
     }
@@ -237,8 +245,12 @@ async function search(request: Request, env: Env): Promise<Response> {
     const features = featureValues(match, match.division, queryTerms, buyerProfiles.get('b:' + inn), customer, price)
     const score = predict(features.values, match.division)
     const external = match.profile.external
+    const matchedOffer = match.offer || (external && offers(external)
+      .filter(offer => !packageMismatch(parsed.package_size, parsed.package_unit, offer.title)
+        && (!queryTerms.size || mustMatch.every(term => tokens(offer.title).has(term))))
+      .sort((a, b) => lexicalRelevance(queryTerms, tokens(b.title), weights) - lexicalRelevance(queryTerms, tokens(a.title), weights))[0])
     const channels = [number(match.catalog?.em_records) ? 'ЭМ' : '', number(match.catalog?.ais_records) ? 'АИС ГЗ' : ''].filter(Boolean)
-    return { match, features, score, source: external?.source || (channels.length ? `История закупок: ${channels.join(', ')}` : 'История закупок: ЭМ') }
+    return { match, features, score, matchedOffer, source: external?.source || (channels.length ? `История закупок: ${channels.join(', ')}` : 'История закупок: ЭМ') }
   }).sort((a, b) => b.match.relevance - a.match.relevance || b.score - a.score)
   const visible = ranked.slice(0, requestedInn ? 1 : topK)
   const visibleDivisions = new Set(visible.map(row => row.match.division))
@@ -248,15 +260,10 @@ async function search(request: Request, env: Env): Promise<Response> {
     rank: index + 1, supplier_inn: row.match.inn,
     supplier_name: row.match.profile.external?.supplier_name || enriched.get('e:' + row.match.inn)?.supplier_name || '',
     profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280), category_division: row.match.division,
-    rank_score: requestedInn ? null : row.score, source: row.source, source_url: row.match.profile.external?.source_url || '',
+    rank_score: requestedInn ? null : row.score, source: row.source, source_url: row.matchedOffer?.offer_url || row.match.profile.external?.source_url || '',
     reasons: [...(requestedInn ? ['точное совпадение ИНН поставщика'] : []), ...explain(row.match, row.features)], history: row.features.history,
     enrichment: enriched.get('e:' + row.match.inn) || null,
-    offer: row.match.profile.external?.offer_title && row.match.profile.external.offer_checked_date ? {
-      title: row.match.profile.external.offer_title, price: row.match.profile.external.offer_price || '',
-      price_unit: row.match.profile.external.offer_price_unit || '', price_note: row.match.profile.external.offer_price_note || '',
-      availability: row.match.profile.external.offer_availability || '', offer_url: row.match.profile.external.offer_url || row.match.profile.external.source_url || '',
-      offer_checked_date: row.match.profile.external.offer_checked_date,
-    } as Offer : null,
+    offer: row.matchedOffer || null,
   }))
   return json(request, env, { query, category_division: displayDivision, category_inferred: !explicitDivision, search_fallback: searchFallback, mode, parsed_query: parsedQuery,
     candidate_count: ranked.length, rank_score_is_probability: false, recommendations })

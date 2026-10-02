@@ -100,6 +100,9 @@ def main():
                 postings['@' + division].add(inn)
             for term in tokens(record.get('profile_text', '')):
                 postings[term].add(inn)
+            for offer in json.loads(record.get('offers_json') or '[]'):
+                for term in tokens(offer['title']):
+                    postings[term].add(inn)
     # Higher observed activity breaks retrieval ties; CatBoost still decides the final order.
     activity = {inn: sum(int(c['observed_lots']) for c in value['catalog'].values()) for inn, value in suppliers.items()}
     indexes = defaultdict(dict)
