@@ -3,7 +3,6 @@ import { lookupEgrul, searchSuppliers, type SearchResult } from './api'
 
 const EXAMPLES = ['ремонт автоэвакуатора ОКПД2 45.20.2', 'медицинские изделия', 'рыбные консервы', 'ИНН 7805198740']
 const title = (supplier: SearchResult['recommendations'][number]) => supplier.supplier_name || `Поставщик ИНН ${supplier.supplier_inn}`
-const mspLabel: Record<string, string> = { '1': 'микропредприятие', '2': 'малое предприятие', '3': 'среднее предприятие' }
 const companyLookupUrls = (inn: string) => ({
   fns: 'https://egrul.nalog.ru/index.html',
   saby: `https://saby.ru/profile/${encodeURIComponent(inn)}`,
@@ -123,7 +122,8 @@ export default function App() {
                             onMouseEnter={() => setSelectedInn(item.supplier_inn)} onFocus={() => setSelectedInn(item.supplier_inn)}
                             onClick={() => setSelectedInn(item.supplier_inn)}>
                             <span className="supplier-rank">{item.rank}</span>
-                            <span className="result-text"><span className="result-title">{title(item)}</span><span className="result-description">{item.profile_excerpt || item.source}</span></span>
+                            <span className="result-text"><span className="result-title">{title(item)}</span><span className="result-description">ОКПД2 {item.category_division}</span></span>
+                            <span className={`result-contact-status${item.has_contacts ? ' is-available' : ''}`}>{item.has_contacts ? 'Контакты есть' : 'Проверить'}</span>
                           </button>
                         ))}
                       </div>
@@ -137,12 +137,6 @@ export default function App() {
                 <div key={selected.supplier_inn} className="supplier-preview-content">
                   <h2 className="supplier-title">{title(selected)}</h2>
                   <p className="supplier-meta">ИНН {selected.supplier_inn} · ОКПД2 {selected.category_division}</p>
-                  <div className="supplier-description-block">
-                    <h3>Чем занимается поставщик</h3>
-                    <p className="supplier-description">{selected.profile_description || selected.profile_excerpt}</p>
-                    {selected.profile_description && selected.profile_excerpt && !selected.profile_description.includes(selected.profile_excerpt) &&
-                      <p className="supplier-matched-position"><strong>Совпало с запросом:</strong> {selected.profile_excerpt}</p>}
-                  </div>
                   <div className="supplier-primary-details">
                   <section className="supplier-offer" aria-label="Цена поставщика">
                     <strong>Цена</strong>
@@ -162,29 +156,15 @@ export default function App() {
                     {selected.enrichment?.website?.startsWith('https://') && <a href={selected.enrichment.website} target="_blank" rel="noreferrer">Сайт компании ↗</a>}
                     {selected.enrichment?.contact_url?.startsWith('https://') && <a href={selected.enrichment.contact_url} target="_blank" rel="noreferrer">Страница компании ↗</a>}
                     {selected.enrichment?.contact_source?.startsWith('https://') && <small>Опубликованный контакт · проверено {selected.enrichment.contact_checked_date} · <a href={selected.enrichment.contact_source} target="_blank" rel="noreferrer">источник ↗</a></small>}
-                    {!selected.enrichment?.phone && !selected.enrichment?.email && !selected.enrichment?.website && !selected.enrichment?.contact_url &&
-                      <small>Прямые контакты компании пока не подтверждены. Для связи откройте её профиль на Портале поставщиков по ИНН.</small>}
+                    {!selected.enrichment?.phone && !selected.enrichment?.email &&
+                      <small>Телефон и email в открытых источниках не подтверждены. Проверьте профиль компании по ИНН.</small>}
                     <a href={companyLookupUrls(selected.supplier_inn).portal} target="_blank" rel="noreferrer">Профиль на Портале поставщиков · ИНН {selected.supplier_inn} ↗</a>
                   </div>
                   </div>
-                  <div className="supplier-history">
-                    <div><strong>{selected.history.participations}</strong><span>участий в ЭМ</span></div>
-                    <div><strong>{selected.history.wins}</strong><span>побед в ЭМ</span></div>
-                    <div><strong>{selected.history.category_wins}</strong><span>побед в категории</span></div>
-                  </div>
-                  {selected.enrichment && <div className="supplier-facts">
-                    <strong>Проверенные сведения</strong>
-                    {(selected.enrichment.region || selected.enrichment.city) && <span>{[selected.enrichment.region, selected.enrichment.city].filter(Boolean).join(', ')}</span>}
-                    {selected.enrichment.primary_okved && <span>ОКВЭД {selected.enrichment.primary_okved}</span>}
-                    {selected.enrichment.msp_category && <span>Реестр МСП: {mspLabel[selected.enrichment.msp_category] || selected.enrichment.msp_category}</span>}
-                    {selected.enrichment.staff_count && <span>Средняя численность работников за 2025 год: {selected.enrichment.staff_count}</span>}
-                    {selected.enrichment.last_activity && <span>Последняя активность в архиве: {selected.enrichment.last_activity}</span>}
-                    {selected.enrichment.observed_lots && <span>Лотов в архиве: {selected.enrichment.observed_lots}</span>}
-                    {selected.enrichment.snapshot_date && <small>Реестр МСП ФНС: срез от {selected.enrichment.snapshot_date} · <a href={selected.enrichment.source_url} target="_blank" rel="noreferrer">источник ↗</a></small>}
-                    {selected.enrichment.activity_source && <small>{selected.enrichment.activity_source}</small>}
-                  </div>}
                   <div className="supplier-discovery-links">
-                    <a href={companyLookupUrls(selected.supplier_inn).saby} target="_blank" rel="noreferrer">Проверить компанию по ИНН в Saby ↗</a>
+                    <a href={companyLookupUrls(selected.supplier_inn).saby} target="_blank" rel="noreferrer">Найти телефон и карточку в Saby Profile · ИНН {selected.supplier_inn} ↗</a>
+                    <a href="https://spark-interfax.ru/" target="_blank" rel="noreferrer" onClick={() => navigator.clipboard?.writeText(selected.supplier_inn).catch(() => {})}>Искать компанию в СПАРК · скопировать ИНН ↗</a>
+                    <a href="https://saby.ru/tenders_api" target="_blank" rel="noreferrer">Открыть Saby Trade ↗</a>
                     <button type="button" className="lookup-button" onClick={() => verifyEgrul(selected.supplier_inn)}>
                       Проверить ЕГРЮЛ по ИНН {egrul?.inn === selected.supplier_inn && egrul.loading ? '…' : '↗'}
                     </button>
@@ -195,10 +175,6 @@ export default function App() {
                       <p key={company.ogrn}><strong>Результат поиска ФНС:</strong> {company.name} · {company.kind} · ОГРН/ОГРНИП {company.ogrn}{company.registered && ` · регистрация ${company.registered}`}</p>
                     ) : <p>По этому ИНН ФНС не вернула запись.</p>}
                   </div>}
-                  <h3>Почему в выдаче</h3>
-                  <ul className="supplier-reasons">{selected.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
-                  <p className="supplier-source">{selected.source}</p>
-                  {selected.source_url.startsWith('https://') && <a className="supplier-link" href={selected.source_url} target="_blank" rel="noreferrer">Профиль в источнике ↗</a>}
                 </div>
               </aside>}
             </div>

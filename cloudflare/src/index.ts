@@ -105,28 +105,8 @@ function featureValues(match: Match, division: string, purchaseTerms: Set<string
       age(category.last_category_activity), buyerParticipation, buyerWins,
       (buyerWins + 1) / (buyerParticipation + 2), buyerCategoryWins,
       Math.log1p(Math.min(Math.max(0, price), priceCap)), textSimilarity, 1],
-    history: { participations: participation, wins: number(global.total_wins), category_participations: categoryParticipation,
-      category_wins: number(category.category_wins), buyer_participations: buyerParticipation, buyer_wins: buyerWins,
-      buyer_category_wins: buyerCategoryWins },
     categoryMatch, textSimilarity, profileText,
   }
-}
-function explain(match: Match, features: ReturnType<typeof featureValues>) {
-  const reasons: string[] = []
-  if (match.codeMatch) reasons.push('есть поставки с таким же точным кодом ОКПД2 в архиве закупок')
-  if (features.categoryMatch) reasons.push('профиль поставщика совпадает с разделом ОКПД2')
-  if (features.history.category_participations) reasons.push(`участвовал в этой категории ${features.history.category_participations} раз, побед ${features.history.category_wins}`)
-  if (features.history.buyer_participations) reasons.push(`есть ${features.history.buyer_participations} прошлых участий у заказчика, побед ${features.history.buyer_wins}`)
-  if (features.history.buyer_category_wins) reasons.push(`побед у этого заказчика в данной категории: ${features.history.buyer_category_wins}`)
-  if (features.textSimilarity >= .15) reasons.push('описание опыта или профиля похоже на предмет закупки')
-  if (!features.history.participations) reasons.push(match.catalog?.observed_lots ? 'есть записи закупок, но нет истории конкурентных результатов ЭМ' : 'нет истории в этих данных; оценка основана на профиле кандидата')
-  else if (features.history.participations < 10) reasons.push('исторический процент побед пока подтверждён небольшим числом участий')
-  if (match.profile.external?.portal_status) reasons.push(`статус в портале: ${match.profile.external.portal_status}`)
-  if (match.profile.external?.portal_offer_count) reasons.push(`в профиле портала опубликовано предложений: ${match.profile.external.portal_offer_count}`)
-  if (match.profile.external?.offer_region_match === 'True') reasons.push('портал подтверждает регион поставки для этой закупки')
-  if (match.profile.external?.portal_category_match === 'True') reasons.push('в каталоге портала найдено совпадение товарной категории')
-  if (match.catalog?.observed_lots) reasons.push(`в архиве найдено закупок в этой категории: ${match.catalog.observed_lots}`)
-  return reasons
 }
 
 async function search(request: Request, env: Env): Promise<Response> {
@@ -252,6 +232,7 @@ async function search(request: Request, env: Env): Promise<Response> {
   for (const match of matches) if ((!explicitDivision || match.division === explicitDivision) && !chosen.has(match.inn)) chosen.set(match.inn, match)
   if (!chosen.size) return empty(explicitDivision || null)
   inns = [...chosen.keys()].slice(0, 100)
+  const enriched = await load<Enrichment>(env.DB, inns.map(inn => 'e:' + inn))
   const buyerProfiles = customer ? await load<BuyerProfile>(env.DB, inns.map(inn => 'b:' + inn)) : new Map<string, BuyerProfile>()
   const price = number(input.start_price)
   const ranked = inns.map(inn => {
@@ -263,32 +244,27 @@ async function search(request: Request, env: Env): Promise<Response> {
       .filter(offer => !packageMismatch(parsed.package_size, parsed.package_unit, offer.title)
         && (!queryTerms.size || mustMatch.every(term => tokens(offer.title).has(term))))
       .sort((a, b) => lexicalRelevance(queryTerms, tokens(b.title), weights) - lexicalRelevance(queryTerms, tokens(a.title), weights))[0])
-    const channels = [number(match.catalog?.em_records) ? 'ЭМ' : '', number(match.catalog?.ais_records) ? 'АИС ГЗ' : ''].filter(Boolean)
-    return { match, features, score, matchedOffer, source: external?.source || (channels.length ? `История закупок: ${channels.join(', ')}` : 'История закупок: ЭМ') }
-  }).sort((a, b) => b.match.relevance - a.match.relevance || b.score - a.score)
-  // Keep one recently verified, contactable supplier visible when its product
-  // match is comparable to the leaders. The learned winner rank stays first.
-  if (!requestedInn && ranked.length > 5) {
-    const matchFloor = Math.max(0.28, ranked[0].match.relevance * 0.35)
-    const contactIndex = ranked.findIndex((row, index) => index >= 5 && row.match.relevance >= matchFloor
-      && Boolean(row.match.profile.external?.contact_phone || row.match.profile.external?.contact_email))
-    if (contactIndex >= 0 && !ranked.slice(0, 5).some(row => row.match.profile.external?.contact_phone || row.match.profile.external?.contact_email)) {
-      const [contactable] = ranked.splice(contactIndex, 1)
-      ranked.splice(4, 0, contactable)
-    }
-  }
+    return { match, features, score, matchedOffer }
+  })
+  const contactFloor = Math.max(0.28, Math.max(...ranked.map(row => row.match.relevance)) * 0.65)
+  const hasContact = (row: typeof ranked[number]) => Boolean(
+    row.match.profile.external?.contact_phone || row.match.profile.external?.contact_email
+    || enriched.get('e:' + row.match.inn)?.phone || enriched.get('e:' + row.match.inn)?.email,
+  )
+  ranked.sort((a, b) => {
+    const contactPriorityA = Number(a.match.relevance >= contactFloor && hasContact(a))
+    const contactPriorityB = Number(b.match.relevance >= contactFloor && hasContact(b))
+    return contactPriorityB - contactPriorityA || b.match.relevance - a.match.relevance || b.score - a.score
+  })
   const visible = ranked.slice(0, requestedInn ? 1 : topK)
   const visibleDivisions = new Set(visible.map(row => row.match.division))
   const displayDivision = explicitDivision || (visibleDivisions.size === 1 ? [...visibleDivisions][0] : null)
-  const enriched = await load<Enrichment>(env.DB, visible.map(row => 'e:' + row.match.inn))
   const recommendations = visible.map((row, index) => ({
     rank: index + 1, supplier_inn: row.match.inn,
     supplier_name: row.match.profile.external?.supplier_name || enriched.get('e:' + row.match.inn)?.supplier_name || '',
-    profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280),
-    profile_description: (row.match.profile.external?.profile_text || row.match.catalog?.examples?.map(example => example.text).slice(0, 4).join('; ') || row.features.profileText).slice(0, 1500),
     category_division: row.match.division,
-    rank_score: requestedInn ? null : row.score, source: row.source, source_url: row.matchedOffer?.offer_url || row.match.profile.external?.source_url || '',
-    reasons: [...(requestedInn ? ['точное совпадение ИНН поставщика'] : []), ...explain(row.match, row.features)], history: row.features.history,
+    rank_score: requestedInn ? null : row.score,
+    has_contacts: hasContact(row),
     enrichment: enriched.get('e:' + row.match.inn) || null,
     offer: row.matchedOffer || null,
   }))

@@ -2,12 +2,9 @@ export interface Supplier {
   rank: number
   supplier_inn: string
   supplier_name: string
-  profile_excerpt: string
-  profile_description: string
   category_division: string
   rank_score: number | null
-  source: string
-  source_url: string
+  has_contacts: boolean
   enrichment: {
     region?: string
     city?: string
@@ -33,17 +30,7 @@ export interface Supplier {
     portal_lookup_url?: string
     fns_registry_url?: string
   } | null
-  reasons: string[]
   offer: { title: string; price: string; price_unit: string; price_note: string; availability: string; offer_url: string; offer_checked_date: string } | null
-  history: {
-    participations: number
-    wins: number
-    category_participations: number
-    category_wins: number
-    buyer_participations: number
-    buyer_wins: number
-    buyer_category_wins: number
-  }
 }
 
 export interface SearchResult {
