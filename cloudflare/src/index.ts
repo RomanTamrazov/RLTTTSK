@@ -1,4 +1,4 @@
-import { bucket, overlap, predict, priceCap, schemaVersion, tokens, treeCount } from './model'
+import { bucket, lexicalRelevance, overlap, predict, priceCap, schemaVersion, searchTerms, tokens, treeCount } from './model'
 import { parseQuery } from './query'
 
 type Env = { DB: D1Database; ALLOWED_ORIGINS: string }
@@ -54,26 +54,26 @@ function divisions(profile: Profile): string[] {
   if (!codes) return []
   try { return (JSON.parse(codes) as string[]).map(code => String(code).split('.')[0]) } catch { return [] }
 }
-function bestExample(queryTerms: Set<string>, catalog: Catalog, requiredWords: number): { relevance: number; text: string } {
+function bestExample(queryTerms: Set<string>, catalog: Catalog, requiredWords: number, weights: Map<string, number>): { relevance: number; text: string } {
   if (!queryTerms.size) return { relevance: 0, text: catalog.examples?.[0]?.text || '' }
   let best = { relevance: 0, text: '' }
   for (const example of catalog.examples || []) {
-    let common = 0
-    for (const term of queryTerms) if (example.tokens.includes(term)) common++
+    const exampleTerms = new Set(example.tokens)
+    const common = [...queryTerms].filter(term => exampleTerms.has(term)).length
     if (common < requiredWords) continue
-    const relevance = common / Math.sqrt(queryTerms.size * Math.max(example.tokens.length, 1))
+    const relevance = lexicalRelevance(queryTerms, exampleTerms, weights)
     if (relevance > best.relevance) best = { relevance, text: example.text }
   }
   return best
 }
-function featureValues(match: Match, division: string, purchaseText: string, buyer: BuyerProfile | undefined, customer: string, price: number) {
+function featureValues(match: Match, division: string, purchaseTerms: Set<string>, buyer: BuyerProfile | undefined, customer: string, price: number) {
   const global = match.profile.global || {}, category = match.profile.categories[division] || {}
   const relation = customer ? buyer?.[customer] : undefined
   const participation = number(global.total_participations), categoryParticipation = number(category.category_participations)
   const buyerParticipation = relation?.[0] || 0, buyerWins = relation?.[1] || 0, buyerCategoryWins = relation?.[2]?.[division] || 0
   const categoryMatch = Number(Boolean(category.category_participations) || divisions(match.profile).includes(division) || Boolean(match.catalog))
   const profileText = match.profile.external?.profile_text || String(global.last_win_text || '')
-  const textSimilarity = Math.max(overlap(tokens(purchaseText), tokens(String(global.last_win_text || profileText))), overlap(tokens(purchaseText), tokens(String(category.last_win_text || profileText))))
+  const textSimilarity = Math.max(overlap(purchaseTerms, tokens(String(global.last_win_text || profileText))), overlap(purchaseTerms, tokens(String(category.last_win_text || profileText))))
   return {
     values: [participation, number(global.total_wins), number(global.total_win_rate, .5), age(global.last_activity),
       categoryParticipation, number(category.category_wins), number(category.category_win_rate, .5), categoryMatch,
@@ -119,7 +119,7 @@ async function search(request: Request, env: Env): Promise<Response> {
   if (explicitCode && !/^\d{2}(?:\.\d{1,3}){0,4}$/.test(explicitCode)) throw new InputError('Укажите корректный код ОКПД2.')
   const explicitDivision = explicitCode.slice(0, 2)
   const requestedInn = parsed.supplier_inn
-  const queryTerms = tokens(parsed.purchase_text)
+  const queryTerms = searchTerms(parsed.purchase_text)
   if (!queryTerms.size && !explicitDivision && !requestedInn) throw new InputError('Укажите предмет закупки, код ОКПД2 или ИНН поставщика.')
   const mode = requestedInn ? 'supplier_lookup' : queryTerms.size ? 'recommendations' : 'category_browse'
   const topK = Math.max(1, Math.min(30, Math.floor(number(input.top_k, 10))))
@@ -130,6 +130,11 @@ async function search(request: Request, env: Env): Promise<Response> {
   const terms = requestedInn ? [] : [...queryTerms].slice(0, 8)
   if (explicitDivision) terms.push('@' + explicitDivision)
   const index = await load<Record<string, string[]>>(env.DB, [...new Set(terms.map(term => 't:' + bucket(term)))])
+  const weights = new Map<string, number>()
+  for (const term of queryTerms) {
+    const postingCount = index.get('t:' + bucket(term))?.[term]?.length || 1
+    weights.set(term, 1 + Math.log(50000 / postingCount))
+  }
   const counts = new Map<string, number>()
   for (const term of terms) {
     for (const inn of (index.get('t:' + bucket(term))?.[term] || []).slice(0, 300)) counts.set(inn, (counts.get(inn) || 0) + 1)
@@ -148,7 +153,7 @@ async function search(request: Request, env: Env): Promise<Response> {
     let found = false
     for (const [division, catalog] of Object.entries(profile.catalog || {})) {
       if (explicitDivision && division !== explicitDivision) continue
-      const best = bestExample(queryTerms, catalog, searchFallback ? 1 : Math.min(2, queryTerms.size))
+      const best = bestExample(queryTerms, catalog, searchFallback ? 1 : Math.min(2, queryTerms.size), weights)
       if (!best.text && !requestedInn && queryTerms.size) continue
       matches.push({ inn, division, relevance: best.relevance, example: best.text, catalog, profile })
       found = true
@@ -156,8 +161,12 @@ async function search(request: Request, env: Env): Promise<Response> {
     if (profile.external) {
       for (const division of divisions(profile)) {
         if (explicitDivision && division !== explicitDivision) continue
-        const relevant = queryTerms.size ? overlap(queryTerms, tokens(profile.external.profile_text)) : 0
-        if (!requestedInn && queryTerms.size && [...queryTerms].filter(term => tokens(profile.external!.profile_text).has(term)).length < (searchFallback ? 1 : Math.min(2, queryTerms.size))) continue
+        const profileTerms = tokens(profile.external.profile_text)
+        const matchingTerms = [...queryTerms].filter(term => profileTerms.has(term))
+        const coverage = matchingTerms.reduce((sum, term) => sum + (weights.get(term) || 1), 0)
+        const totalWeight = [...queryTerms].reduce((sum, term) => sum + (weights.get(term) || 1), 0)
+        const relevant = queryTerms.size ? coverage / Math.max(1, totalWeight) * Math.sqrt(queryTerms.size / Math.max(1, profileTerms.size)) : 0
+        if (!requestedInn && queryTerms.size && matchingTerms.length < (searchFallback ? 1 : Math.min(2, queryTerms.size))) continue
         matches.push({ inn, division, relevance: relevant, example: profile.external.profile_text, profile })
         found = true
       }
@@ -180,12 +189,12 @@ async function search(request: Request, env: Env): Promise<Response> {
   const price = number(input.start_price)
   const ranked = inns.map(inn => {
     const match = chosen.get(inn)!
-    const features = featureValues(match, division || 'unknown', parsed.purchase_text, buyerProfiles.get('b:' + inn), customer, price)
+    const features = featureValues(match, division || 'unknown', queryTerms, buyerProfiles.get('b:' + inn), customer, price)
     const score = predict(features.values, division || 'unknown')
     const external = match.profile.external
     const channels = [number(match.catalog?.em_records) ? 'ЭМ' : '', number(match.catalog?.ais_records) ? 'АИС ГЗ' : ''].filter(Boolean)
     return { match, features, score, source: external?.source || (channels.length ? `История закупок: ${channels.join(', ')}` : 'История закупок: ЭМ') }
-  }).sort((a, b) => b.score - a.score)
+  }).sort((a, b) => b.match.relevance - a.match.relevance || b.score - a.score)
   const visible = ranked.slice(0, requestedInn ? 1 : topK)
   const enriched = await load<Enrichment>(env.DB, visible.map(row => 'e:' + row.match.inn))
   const recommendations = visible.map((row, index) => ({

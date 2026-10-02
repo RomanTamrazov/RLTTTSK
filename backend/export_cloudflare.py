@@ -26,6 +26,7 @@ def read(name):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    packed = {}
     model = CatBoostRanker()
     model.load_model(str(ARTIFACTS / 'supplier_ranker.cbm'))
     if model.feature_names_ != FEATURES:
@@ -55,7 +56,6 @@ def main():
         packed['leaf_values'] = [value[0] for value in exported.leaf_values]
         packed.update(category_bins=category_bins, features=FEATURES, schema_version=SCHEMA_VERSION, price_cap=PRICE_CAP_EM,
                       endings=ENDINGS, generic_stems=sorted(GENERIC_STEMS))
-        (OUT / 'model.json').write_text(json.dumps(packed, ensure_ascii=False, separators=(',', ':')))
 
     suppliers = defaultdict(lambda: {'catalog': {}, 'categories': {}, 'global': {}})
     buyers = defaultdict(dict)
@@ -97,6 +97,9 @@ def main():
     indexes = defaultdict(dict)
     for term, inns in postings.items():
         indexes[bucket(term)][term] = sorted(inns, key=lambda inn: (-activity.get(inn, 0), inn))
+    packed['search_vocabulary'] = sorted(postings)
+    packed['search_term_frequency'] = {term: len(inns) for term, inns in postings.items()}
+    (OUT / 'model.json').write_text(json.dumps(packed, ensure_ascii=False, separators=(',', ':')))
     rows = 0
     with (OUT / 'data.sql').open('w') as sql:
         sql.write('CREATE TABLE IF NOT EXISTS store (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;\n')

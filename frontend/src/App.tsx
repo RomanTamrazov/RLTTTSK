@@ -101,6 +101,17 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const closePanels = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setBulkOpen(false)
+      setFocused(false)
+      setSelectedInn(null)
+    }
+    document.addEventListener('keydown', closePanels)
+    return () => document.removeEventListener('keydown', closePanels)
+  }, [])
+
+  useEffect(() => {
     const outside = (event: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) { setFocused(false); setSelectedInn(null) }
     }
@@ -209,14 +220,15 @@ export default function App() {
             </div>}
           </aside>
         </div>
-        {!focused && <button type="button" className={`bulk-open${bulkOpen ? ' is-open' : ''}`} onClick={() => setBulkOpen(!bulkOpen)}>
+        {!focused && <button type="button" className={`bulk-open${bulkOpen ? ' is-open' : ''}`} aria-expanded={bulkOpen} aria-controls="bulk-panel" onClick={() => setBulkOpen(!bulkOpen)}>
           <span aria-hidden="true">▤</span>{bulkOpen ? 'Свернуть список закупок' : 'Загрузить список закупок CSV'}
         </button>}
-        {bulkOpen && <section className="bulk-panel" aria-label="Пакетные рекомендации поставщиков">
+        {bulkOpen && !focused && <section id="bulk-panel" className="bulk-panel" aria-label="Пакетные рекомендации поставщиков">
           <header className="bulk-header">
             <div><span className="bulk-kicker">ПОДБОР ДЛЯ СПИСКА ЗАКУПОК</span><h2>Загрузите закупки — получите поставщиков</h2>
               <p>Для каждой строки подберём до пяти поставщиков, сохраним ваш ID и подготовим CSV с рекомендациями.</p></div>
-            <button type="button" className="csv-template" onClick={downloadPurchaseTemplate}>Скачать шаблон</button>
+            <div className="bulk-header-actions"><button type="button" className="csv-template" onClick={downloadPurchaseTemplate}>Скачать шаблон</button>
+              <button type="button" className="bulk-close" aria-label="Закрыть загрузку CSV" onClick={() => setBulkOpen(false)}>Закрыть</button></div>
           </header>
           <div className="bulk-controls">
             <label className="csv-upload">{purchases.length ? `Загружено закупок: ${purchases.length}` : 'Выбрать CSV-файл'}

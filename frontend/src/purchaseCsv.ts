@@ -42,7 +42,7 @@ const normalize = (value: string) => value.toLocaleLowerCase('ru').replace(/[\s\
 const ALIASES: Record<string, string[]> = {
   id: ['id', 'purchaseid', 'lotid', 'requestid', 'номерзакупки', 'реестровыйномер', 'идентификатор', 'номерлота'],
   query: ['query', 'purchase', 'purchasetext', 'purchasedescription', 'purchasename', 'description', 'subject', 'title', 'lotname', 'названиезакупки', 'описаниезакупки', 'предметзакупки', 'наименованиезакупки', 'предмет', 'описание', 'закупка'],
-  okpd2: ['okpd2', 'окпд2', 'кодокпд2'],
+  okpd2: ['okpd2', 'okpd2code', 'окпд2', 'кодокпд2', 'кодокпд2закупки'],
   customerInn: ['customerinn', 'иннзаказчика', 'заказчикinn'],
   startPrice: ['startprice', 'начальнаяцена', 'нмцк', 'цена'],
 }

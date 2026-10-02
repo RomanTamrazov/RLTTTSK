@@ -44,6 +44,9 @@ body {
 .bulk-header h2 { margin: 5px 0 4px; color: #292925; font-size: 20px; line-height: 1.25; }
 .bulk-header p { max-width: 500px; margin: 0; line-height: 1.5; }
 .bulk-header .csv-template { flex-shrink: 0; }
+.bulk-header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
+.bulk-close { min-height: 36px; padding: 7px 11px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #777469; font: inherit; font-size: 12px; cursor: pointer; }
+.bulk-close:hover, .bulk-close:focus-visible { color: #1677e8; border-color: #b8d4f6; background: #f3f8ff; }
 .bulk-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .bulk-format { margin: 10px 0 0; line-height: 1.55; }
 .bulk-format code { padding: 1px 4px; border-radius: 4px; background: #f2f0e9; color: #4e584e; }
@@ -143,6 +146,9 @@ body {
   .company-title { font-size: 52px !important; }
   .search-input { font-size: 15px !important; }
   .city-background { object-position: 48% bottom; }
+  .bulk-header { flex-direction: column; gap: 12px; }
+  .bulk-header h2 { font-size: 18px; }
+  .bulk-header-actions { width: 100%; justify-content: space-between; }
 }
 
 .app { min-height: 100vh; position: relative; display: flex; flex-direction: column; align-items: center; padding: clamp(48px, 12vh, 120px) 0 40px; overflow-x: clip; }
