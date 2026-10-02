@@ -10,6 +10,10 @@ test('maps a Latin product query to the Russian catalog term', () => {
   assert.deepEqual([...searchTerms('iPhone')], ['смартфон'])
 })
 
+test('matches singular ткань to the catalog stem used for ткани', () => {
+  assert.deepEqual([...searchTerms('ткань')], ['ткан'])
+})
+
 test('rare distinguishing words outweigh a shared generic word', () => {
   const query = new Set(['резинов', 'шин'])
   const weights = new Map([['резинов', 2], ['шин', 8]])

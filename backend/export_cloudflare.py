@@ -71,22 +71,30 @@ def main():
         if record.customer_inn in buyers[record.supplier_inn]:
             buyers[record.supplier_inn][record.customer_inn][2][record.category_division] = int(record.buyer_category_wins)
     postings = defaultdict(set)
+    external_inns = set()
     for record in read('supplier_search_catalog.csv.gz').to_dict('records'):
         inn, division = record.pop('supplier_inn'), record.pop('category_division')
         if inn.startswith('0000'):
             continue
         examples = json.loads(record.pop('examples_json') or '[]')
+        codes = json.loads(record.pop('okpd2_codes') or '[]')
         record.pop('example_text', None)
+        record['okpd2_codes'] = codes
         record['examples'] = [{'text': text, 'tokens': sorted(tokens(text))} for text in examples]
         suppliers[inn]['catalog'][division] = record
         for example in record['examples']:
             for term in example['tokens']:
                 postings[term].add(inn)
         postings['@' + division].add(inn)
+        for code in codes:
+            parts = str(code).split('.')
+            for end in range(1, len(parts) + 1):
+                postings['@' + '.'.join(parts[:end])].add(inn)
     external = ARTIFACTS / 'external_supplier_pool.csv'
     if external.exists():
         for record in pd.read_csv(external, dtype=str, keep_default_na=False).to_dict('records'):
             inn = record['supplier_inn']
+            external_inns.add(inn)
             suppliers[inn]['external'] = record
             for division in [code.split('.')[0] for code in json.loads(record['okpd2_codes'])]:
                 postings['@' + division].add(inn)
@@ -96,7 +104,11 @@ def main():
     activity = {inn: sum(int(c['observed_lots']) for c in value['catalog'].values()) for inn, value in suppliers.items()}
     indexes = defaultdict(dict)
     for term, inns in postings.items():
-        indexes[bucket(term)][term] = sorted(inns, key=lambda inn: (-activity.get(inn, 0), inn))
+        # Keep verified external profiles within the bounded postings returned
+        # by the Worker, even when a broad parent category has many incumbents.
+        indexes[bucket(term)][term] = sorted(
+            inns, key=lambda inn: (inn not in external_inns, -activity.get(inn, 0), inn)
+        )
     packed['search_vocabulary'] = sorted(postings)
     packed['search_term_frequency'] = {term: len(inns) for term, inns in postings.items()}
     (OUT / 'model.json').write_text(json.dumps(packed, ensure_ascii=False, separators=(',', ':')))

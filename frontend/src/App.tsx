@@ -155,9 +155,16 @@ export default function App() {
               </div> : submittedQuery !== query.trim() ? <p className="search-status">Нажмите кнопку поиска или Enter, чтобы подобрать кандидатов.</p>
                 : loading ? <p className="search-status loading-status" role="status">Подбираем поставщиков<span className="loading-dots" aria-hidden="true">…</span></p>
                 : error ? <p className="search-status" role="alert">{error}</p>
-                  : !suppliers.length ? <p className="search-status" role="status">Поставщики не найдены. Уточните предмет закупки или код ОКПД2.</p>
+                  : !suppliers.length ? <p className="search-status" role="status">{result?.parsed_query.package_size
+                    ? `Поставщики с фасовкой ${result.parsed_query.package_size} ${result.parsed_query.package_unit} не найдены. Проверьте фасовку или уберите её из запроса.`
+                    : 'Поставщики не найдены. Уточните предмет закупки или код ОКПД2.'}</p>
                     : <>
-                      <div className="results-caption">{result?.mode === 'supplier_lookup' ? 'Найден поставщик' : `Кандидатов: ${result?.candidate_count} · ОКПД2 ${result?.category_division}`}{result?.search_fallback && ' · поиск расширен'}{result?.parsed_query.customer_inn && ' · учтён заказчик'}</div>
+                      <div className="results-caption">{result?.mode === 'supplier_lookup' ? 'Найден поставщик' : `Кандидатов: ${result?.candidate_count} · ${result?.category_division ? `ОКПД2 ${result.category_division}` : 'несколько разделов ОКПД2'}`}{result?.search_fallback && ' · поиск расширен'}{result?.parsed_query.customer_inn && ' · учтён заказчик'}</div>
+                      {result?.parsed_query && (result.parsed_query.requested_quantity || result.parsed_query.package_size) && <div className="request-quantity">
+                        Запрос: {result.parsed_query.purchase_text || 'закупка'}
+                        {result.parsed_query.requested_quantity && <> · количество {result.parsed_query.requested_quantity.toLocaleString('ru-RU')} {result.parsed_query.quantity_unit}</>}
+                        {result.parsed_query.package_size && <> · фасовка {result.parsed_query.package_size} {result.parsed_query.package_unit}</>}
+                      </div>}
                       <div className="search-results">
                         {pageSuppliers.map((item, index) => (
                           <button key={item.supplier_inn} style={{ animationDelay: `${index * 35}ms` }} className={`search-result${selectedInn === item.supplier_inn ? ' is-active' : ''}`}
@@ -182,6 +189,14 @@ export default function App() {
               <h2 className="supplier-title">{title(selected)}</h2>
               <p className="supplier-meta">ИНН {selected.supplier_inn} · ОКПД2 {selected.category_division}</p>
               <p className="supplier-description">{selected.profile_excerpt}</p>
+              {selected.offer && <section className="supplier-offer" aria-label="Публичное предложение поставщика">
+                <strong>Публичное предложение</strong><span>{selected.offer.title}</span>
+                {selected.offer.price && <b>{selected.offer.price}{selected.offer.price_unit ? ` ${selected.offer.price_unit}` : ''}</b>}
+                {selected.offer.price_note && <small>{selected.offer.price_note}</small>}
+                {selected.offer.availability && <small>Наличие: {selected.offer.availability}</small>}
+                <small>Источник проверен {selected.offer.offer_checked_date}. Цена и наличие могут измениться; окончательную стоимость подтвердит поставщик.</small>
+                {selected.offer.offer_url.startsWith('https://') && <a href={selected.offer.offer_url} target="_blank" rel="noreferrer">Карточка предложения ↗</a>}
+              </section>}
               <div className="supplier-history">
                 <div><strong>{selected.history.participations}</strong><span>участий в ЭМ</span></div>
                 <div><strong>{selected.history.wins}</strong><span>побед в ЭМ</span></div>
@@ -197,7 +212,6 @@ export default function App() {
                 {selected.enrichment.observed_lots && <span>Лотов в архиве: {selected.enrichment.observed_lots}</span>}
                 {selected.enrichment.snapshot_date && <small>ФНС: срез от {selected.enrichment.snapshot_date} · <a href={selected.enrichment.source_url} target="_blank" rel="noreferrer">источник ↗</a></small>}
                 {selected.enrichment.activity_source && <small>{selected.enrichment.activity_source}</small>}
-                {selected.enrichment.website_lookup_url && !selected.enrichment.website && <a href={selected.enrichment.website_lookup_url} target="_blank" rel="noreferrer">Найти сайт ↗</a>}
               </div>}
               <div className="supplier-discovery-links">
                 <a href={companyLookupUrls(selected.supplier_inn).fns} target="_blank" rel="noreferrer">Проверить ЕГРЮЛ по ИНН ↗</a>
@@ -211,7 +225,7 @@ export default function App() {
                 {selected.enrichment?.contact_url?.startsWith('https://') && <a href={selected.enrichment.contact_url} target="_blank" rel="noreferrer">Страница компании ↗</a>}
                 {selected.enrichment?.contact_source?.startsWith('https://') && <small>Опубликованный контакт · проверено {selected.enrichment.contact_checked_date} · <a href={selected.enrichment.contact_source} target="_blank" rel="noreferrer">источник ↗</a></small>}
                 {!selected.enrichment?.phone && !selected.enrichment?.email && !selected.enrichment?.website && !selected.enrichment?.contact_url &&
-                  <a href={selected.enrichment?.contact_lookup_url || `https://yandex.ru/search/?text=${encodeURIComponent(`контакты компании ИНН ${selected.supplier_inn}`)}`} target="_blank" rel="noreferrer">Найти контакты по ИНН ↗</a>}
+                  <small>Публичные контакты не найдены в проверенных карточках. Не показываем непроверенные контакты.</small>}
               </div>
               <h3>Почему в выдаче</h3>
               <ul className="supplier-reasons">{selected.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>

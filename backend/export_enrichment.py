@@ -29,6 +29,24 @@ def main() -> None:
             if len(inn) not in (10, 12) or not inn.isdigit():
                 raise ValueError(f"Invalid INN {inn!r} in {path}")
             records.setdefault(inn, {}).update({key: value for key, value in row.items() if value})
+    # Verified external business-card details are display/contact signals, not
+    # training labels or CatBoost features.
+    external = ROOT / "artifacts" / "external_supplier_pool.csv"
+    if external.exists():
+        for row in pd.read_csv(external, dtype=str, keep_default_na=False).to_dict("records"):
+            inn = row.get("supplier_inn", "").strip()
+            if len(inn) not in (10, 12) or not inn.isdigit():
+                continue
+            data = records.setdefault(inn, {})
+            for source_key, target_key in (("supplier_name", "supplier_name"),
+                                           ("contact_phone", "phone"),
+                                           ("contact_email", "email"),
+                                           ("website", "website"),
+                                           ("source_url", "contact_url"),
+                                           ("contact_source", "contact_source"),
+                                           ("contact_checked_date", "contact_checked_date")):
+                if row.get(source_key):
+                    data[target_key] = row[source_key]
     # Give every historical supplier a useful, date-bounded activity signal and
     # safe discovery links even when FNS or a public contact was not found.
     if args.catalog.exists():
@@ -50,8 +68,6 @@ def main() -> None:
     # companies with an FNS/contact profile but no corresponding catalog row.
     for inn, data in records.items():
         portal_filter = json.dumps({"isSupplier": True, "inn": {"value": inn}}, separators=(",", ":"))
-        data.setdefault("contact_lookup_url", "https://yandex.ru/search/?text=" + quote(f"контакты компании ИНН {inn}"))
-        data.setdefault("website_lookup_url", "https://yandex.ru/search/?text=" + quote(f"официальный сайт компании ИНН {inn}"))
         data["portal_lookup_url"] = "https://zakupki.mos.ru/organization/list?page=1&perPage=10&filter=" + quote(portal_filter, safe="")
         data["fns_registry_url"] = "https://egrul.nalog.ru/index.html?query=" + quote(inn, safe="")
     args.output.parent.mkdir(parents=True, exist_ok=True)

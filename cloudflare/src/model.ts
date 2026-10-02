@@ -105,8 +105,9 @@ const concepts: Record<string, string> = { iphone: 'смартфон', iphon: '�
 export function searchTerms(text: string): Set<string> {
   const result = new Set<string>()
   for (const term of tokens(text)) {
-    if (vocabulary.has(term)) { result.add(term); continue }
     if (concepts[term] && vocabulary.has(concepts[term])) { result.add(concepts[term]); continue }
+    if (term.endsWith('ь') && vocabulary.has(term.slice(0, -1))) { result.add(term.slice(0, -1)); continue }
+    if (vocabulary.has(term)) { result.add(term); continue }
     const latin = /[a-z]/.test(term)
     const phonetic = latin ? [...tokens(transliterate(term))] : []
     let corrected = phonetic.find(word => vocabulary.has(word))

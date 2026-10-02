@@ -1,0 +1,2 @@
+﻿supplier_inn,supplier_name,okpd2_codes,profile_text,offer_title,offer_price,offer_price_unit,offer_price_note,offer_availability,source_url,checked_date,contact_phone,contact_email,website,contact_url,verified
+7700000000,Пример поставщика,"[""10.00""]",Проверенное описание ассортимента,Пример товара,100 ₽,за штуку,Условия цены,В наличии,https://example.org/product,2026-10-02,+7 000 000-00-00,sales@example.org,https://example.org,https://example.org/contacts,false

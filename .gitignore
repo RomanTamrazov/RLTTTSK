@@ -5,6 +5,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!frontend/.env.development
 /*.csv
 /backend/prepared/
 /backend/artifacts/*
@@ -12,6 +13,8 @@ __pycache__/
 !/backend/artifacts/feature_importance.csv
 !/backend/artifacts/fns_supplier_enrichment.csv.gz
 !/backend/artifacts/supplier_contacts.csv
+!/backend/artifacts/external_supplier_pool.csv
+!/backend/artifacts/supplier_source_import_template.csv
 node_modules/
 frontend/dist/
 /cloudflare/generated/*

@@ -3,16 +3,17 @@ import { parseQuery } from './query'
 
 type Env = { DB: D1Database; ALLOWED_ORIGINS: string }
 type RecordValue = Record<string, string | number>
-type Catalog = RecordValue & { observed_lots: number; ais_records: number; em_records: number; examples: { text: string; tokens: string[] }[] }
+type Catalog = RecordValue & { observed_lots: number; ais_records: number; em_records: number; okpd2_codes: string[]; examples: { text: string; tokens: string[] }[] }
 type External = RecordValue & { supplier_name: string; profile_text: string; source: string; source_url: string; okpd2_codes: string; portal_status: string; portal_offer_count: string; offer_region_match: string; portal_category_match: string }
 type Enrichment = { supplier_name?: string; region?: string; city?: string; primary_okved?: string; msp_category?: string;
   staff_count?: string; snapshot_date?: string; source_url?: string; phone?: string; email?: string; website?: string;
   contact_url?: string; contact_source?: string; contact_checked_date?: string; last_activity?: string;
   observed_lots?: string; ais_records?: string; em_records?: string; activity_period?: string;
-  activity_source?: string; contact_lookup_url?: string; website_lookup_url?: string; portal_lookup_url?: string; fns_registry_url?: string }
+  activity_source?: string; portal_lookup_url?: string; fns_registry_url?: string }
+type Offer = { title: string; price: string; price_unit: string; price_note: string; availability: string; offer_url: string; offer_checked_date: string }
 type Profile = { global: RecordValue; categories: Record<string, RecordValue>; catalog: Record<string, Catalog>; external?: External }
 type BuyerProfile = Record<string, [number, number, Record<string, number>]>
-type Match = { inn: string; division: string; relevance: number; example: string; catalog?: Catalog; profile: Profile }
+type Match = { inn: string; division: string; relevance: number; example: string; catalog?: Catalog; profile: Profile; codeMatch?: boolean }
 
 class InputError extends Error { constructor(message: string) { super(message) } }
 const digits = /^\d{10}(?:\d{2})?$/
@@ -49,18 +50,28 @@ function age(value: unknown): number {
   const timestamp = Date.parse(String(value || ''))
   return Number.isFinite(timestamp) ? Math.min(3650, Math.max(0, Math.floor((Date.now() - timestamp) / 86400000))) : 3650
 }
+function animalProduct(text: string): boolean { return /ветеринар|вет\.|лошад|животн|собак|кошк|крупнорогат|свинь|коз[аы]/iu.test(text) }
+function packageMismatch(size: number | null, unit: string | null, text: string): boolean {
+  if (!size || !unit) return false
+  const group = (value: string) => /^(мл|ml)$/.test(value) ? 'volume-small' : /^(л|литр)/.test(value) ? 'volume-large'
+    : /^(г|гр)$/.test(value) ? 'weight-small' : /^(кг|килограмм)/.test(value) ? 'weight-large' : value
+  const expectedUnit = group(unit)
+  const measures = [...text.matchAll(/(\d+(?:[,.]\d+)?)\s*(мл|ml|л|литр(?:а|ов)?|г|гр|кг|килограмм(?:а|ов)?)(?![\p{L}])/giu)]
+  return measures.some(match => group(match[2].toLowerCase()) === expectedUnit
+    && Math.abs(Number(match[1].replace(',', '.')) - size) > 0.0001)
+}
 function divisions(profile: Profile): string[] {
   const codes = profile.external?.okpd2_codes
   if (!codes) return []
   try { return (JSON.parse(codes) as string[]).map(code => String(code).split('.')[0]) } catch { return [] }
 }
-function bestExample(queryTerms: Set<string>, catalog: Catalog, requiredWords: number, weights: Map<string, number>): { relevance: number; text: string } {
+function bestExample(queryTerms: Set<string>, catalog: Catalog, requiredWords: number, weights: Map<string, number>, mustMatch: string[]): { relevance: number; text: string } {
   if (!queryTerms.size) return { relevance: 0, text: catalog.examples?.[0]?.text || '' }
   let best = { relevance: 0, text: '' }
   for (const example of catalog.examples || []) {
     const exampleTerms = new Set(example.tokens)
     const common = [...queryTerms].filter(term => exampleTerms.has(term)).length
-    if (common < requiredWords) continue
+    if (common < requiredWords || mustMatch.some(term => !exampleTerms.has(term))) continue
     const relevance = lexicalRelevance(queryTerms, exampleTerms, weights)
     if (relevance > best.relevance) best = { relevance, text: example.text }
   }
@@ -88,6 +99,7 @@ function featureValues(match: Match, division: string, purchaseTerms: Set<string
 }
 function explain(match: Match, features: ReturnType<typeof featureValues>) {
   const reasons: string[] = []
+  if (match.codeMatch) reasons.push('есть поставки с таким же точным кодом ОКПД2 в архиве закупок')
   if (features.categoryMatch) reasons.push('профиль поставщика совпадает с разделом ОКПД2')
   if (features.history.category_participations) reasons.push(`участвовал в этой категории ${features.history.category_participations} раз, побед ${features.history.category_wins}`)
   if (features.history.buyer_participations) reasons.push(`есть ${features.history.buyer_participations} прошлых участий у заказчика, побед ${features.history.buyer_wins}`)
@@ -119,28 +131,49 @@ async function search(request: Request, env: Env): Promise<Response> {
   if (explicitCode && !/^\d{2}(?:\.\d{1,3}){0,4}$/.test(explicitCode)) throw new InputError('Укажите корректный код ОКПД2.')
   const explicitDivision = explicitCode.slice(0, 2)
   const requestedInn = parsed.supplier_inn
+  const animalQuery = animalProduct(parsed.purchase_text)
   const queryTerms = searchTerms(parsed.purchase_text)
   if (!queryTerms.size && !explicitDivision && !requestedInn) throw new InputError('Укажите предмет закупки, код ОКПД2 или ИНН поставщика.')
   const mode = requestedInn ? 'supplier_lookup' : queryTerms.size ? 'recommendations' : 'category_browse'
   const topK = Math.max(1, Math.min(30, Math.floor(number(input.top_k, 10))))
-  const parsedQuery = { purchase_text: parsed.purchase_text, okpd2_code: explicitCode || null, customer_inn: customer || null, supplier_inn: requestedInn || null }
+  const parsedQuery = { purchase_text: parsed.purchase_text, okpd2_code: explicitCode || null, customer_inn: customer || null, supplier_inn: requestedInn || null,
+    requested_quantity: parsed.requested_quantity, quantity_unit: parsed.quantity_unit,
+    package_size: parsed.package_size, package_unit: parsed.package_unit }
   const empty = (division: string | null) => json(request, env, { query, category_division: division, category_inferred: !explicitDivision,
     mode, parsed_query: parsedQuery, candidate_count: 0, rank_score_is_probability: false, recommendations: [] })
 
-  const terms = requestedInn ? [] : [...queryTerms].slice(0, 8)
-  if (explicitDivision) terms.push('@' + explicitDivision)
+  const codeTerms: string[] = []
+  if (explicitCode) {
+    const parts = explicitCode.split('.')
+    for (let end = parts.length; end >= 1; end--) codeTerms.push('@' + parts.slice(0, end).join('.'))
+  }
+  const terms = requestedInn ? [] : [...queryTerms].slice(0, 8).concat(codeTerms)
   const index = await load<Record<string, string[]>>(env.DB, [...new Set(terms.map(term => 't:' + bucket(term)))])
+  // Use the most specific code level available; broaden only if its leaf is absent.
+  const matchedCodeTerm = codeTerms.find(term => (index.get('t:' + bucket(term))?.[term]?.length || 0) > 0) || ''
+  const codeInns = matchedCodeTerm ? (index.get('t:' + bucket(matchedCodeTerm))?.[matchedCodeTerm] || []).slice(0, 200) : []
   const weights = new Map<string, number>()
   for (const term of queryTerms) {
     const postingCount = index.get('t:' + bucket(term))?.[term]?.length || 1
     weights.set(term, 1 + Math.log(50000 / postingCount))
   }
+  // Require the two rarest query terms. This keeps category mates such as an
+  // HPV vaccine out of a flu-vaccine search while retaining broad wording.
+  const mustMatch = [...queryTerms].sort((a, b) => (weights.get(b) || 0) - (weights.get(a) || 0))
+    .slice(0, Math.min(2, queryTerms.size))
   const counts = new Map<string, number>()
-  for (const term of terms) {
+  for (const term of queryTerms) {
     for (const inn of (index.get('t:' + bucket(term))?.[term] || []).slice(0, 300)) counts.set(inn, (counts.get(inn) || 0) + 1)
   }
-  const minTerms = Math.min(2, queryTerms.size) + Number(Boolean(explicitDivision))
-  let inns = requestedInn ? [requestedInn] : [...counts].filter(([, count]) => count >= minTerms).sort((a, b) => b[1] - a[1]).slice(0, 150).map(([inn]) => inn)
+  // With an explicit code, one distinctive product word plus the code is
+  // stronger than requiring two words from a terse product label.
+  const minTerms = explicitCode ? Math.min(1, queryTerms.size) : Math.min(2, queryTerms.size)
+  const textInns = [...counts].filter(([, count]) => count >= minTerms).sort((a, b) => b[1] - a[1]).slice(0, 150).map(([inn]) => inn)
+  let inns = requestedInn ? [requestedInn] : codeInns.length
+    // Prefer product-text hits before broad parent-code postings. Otherwise a
+    // busy OKPD2 parent can fill the cap and hide a matching external profile.
+    ? [...new Set([...textInns, ...codeInns])].slice(0, 300)
+    : textInns
   const searchFallback = !requestedInn && !inns.length && queryTerms.size > 1
   if (searchFallback) inns = [...counts].filter(([, count]) => count >= 1 + Number(Boolean(explicitDivision)))
     .sort((a, b) => b[1] - a[1]).slice(0, 150).map(([inn]) => inn)
@@ -153,21 +186,36 @@ async function search(request: Request, env: Env): Promise<Response> {
     let found = false
     for (const [division, catalog] of Object.entries(profile.catalog || {})) {
       if (explicitDivision && division !== explicitDivision) continue
-      const best = bestExample(queryTerms, catalog, searchFallback ? 1 : Math.min(2, queryTerms.size), weights)
+      const codeMatch = Boolean(explicitCode && catalog.okpd2_codes?.includes(explicitCode))
+      if (matchedCodeTerm && codeInns.includes(inn) && !codeMatch) continue
+      const requiredWords = codeMatch ? Math.min(1, queryTerms.size) : searchFallback ? 1 : Math.min(2, queryTerms.size)
+      const best = bestExample(queryTerms, catalog, requiredWords, weights, mustMatch)
+      // A matching broad code is not enough by itself for a named product:
+      // keep at least one matching product/experience word to avoid bad fits.
       if (!best.text && !requestedInn && queryTerms.size) continue
-      matches.push({ inn, division, relevance: best.relevance, example: best.text, catalog, profile })
+      const example = best.text || (codeMatch ? catalog.examples?.[0]?.text || '' : '')
+      if (!requestedInn && (animalProduct(example) && !animalQuery || packageMismatch(parsed.package_size, parsed.package_unit, example))) continue
+      matches.push({ inn, division, relevance: Math.max(best.relevance, codeMatch ? 0.18 : 0), example, catalog, profile, codeMatch })
       found = true
     }
     if (profile.external) {
       for (const division of divisions(profile)) {
         if (explicitDivision && division !== explicitDivision) continue
-        const profileTerms = tokens(profile.external.profile_text)
-        const matchingTerms = [...queryTerms].filter(term => profileTerms.has(term))
-        const coverage = matchingTerms.reduce((sum, term) => sum + (weights.get(term) || 1), 0)
-        const totalWeight = [...queryTerms].reduce((sum, term) => sum + (weights.get(term) || 1), 0)
-        const relevant = queryTerms.size ? coverage / Math.max(1, totalWeight) * Math.sqrt(queryTerms.size / Math.max(1, profileTerms.size)) : 0
-        if (!requestedInn && queryTerms.size && matchingTerms.length < (searchFallback ? 1 : Math.min(2, queryTerms.size))) continue
-        matches.push({ inn, division, relevance: relevant, example: profile.external.profile_text, profile })
+        const externalText = `${profile.external.profile_text} ${profile.external.offer_title || ''}`
+        if (!requestedInn && (animalProduct(externalText) && !animalQuery || packageMismatch(parsed.package_size, parsed.package_unit, externalText))) continue
+        const requiredExternalTerms = explicitCode || searchFallback ? 1 : Math.min(2, queryTerms.size)
+        let best = { relevance: 0, text: profile.external.profile_text }
+        const snippets = [profile.external.profile_text, String(profile.external.offer_title || ''),
+          ...profile.external.profile_text.split(/[.;]/).map(text => text.trim()).filter(Boolean)]
+        for (const snippet of snippets) {
+          const snippetTerms = tokens(snippet)
+          if (queryTerms.size && ([...queryTerms].filter(term => snippetTerms.has(term)).length < requiredExternalTerms
+            || mustMatch.some(term => !snippetTerms.has(term)))) continue
+          const relevance = lexicalRelevance(queryTerms, snippetTerms, weights)
+          if (relevance > best.relevance) best = { relevance, text: snippet }
+        }
+        if (!requestedInn && queryTerms.size && best.relevance === 0) continue
+        matches.push({ inn, division, relevance: best.relevance, example: best.text, profile })
         found = true
       }
     }
@@ -176,36 +224,41 @@ async function search(request: Request, env: Env): Promise<Response> {
   }
   matches.sort((a, b) => b.relevance - a.relevance || number(b.catalog?.observed_lots) - number(a.catalog?.observed_lots))
   if (!matches.length) return empty(explicitDivision || null)
-  const leaders = matches.slice(0, 80)
-  const totals = new Map<string, number[]>()
-  for (const match of leaders) totals.set(match.division, [...(totals.get(match.division) || []), match.relevance])
-  const division = explicitDivision || (requestedInn ? matches[0].division : [...totals].sort((a, b) =>
-    b[1].sort((x, y) => y - x).slice(0, 3).reduce((x, y) => x + y, 0) - a[1].sort((x, y) => y - x).slice(0, 3).reduce((x, y) => x + y, 0))[0]?.[0] || '')
   const chosen = new Map<string, Match>()
-  for (const match of matches) if (match.division === division && !chosen.has(match.inn)) chosen.set(match.inn, match)
-  if (!chosen.size) return empty(division || null)
+  // Without an explicit OKPD2 code, preserve relevant suppliers from adjacent
+  // sections: oxygen concentrators and medical equipment use several divisions.
+  for (const match of matches) if ((!explicitDivision || match.division === explicitDivision) && !chosen.has(match.inn)) chosen.set(match.inn, match)
+  if (!chosen.size) return empty(explicitDivision || null)
   inns = [...chosen.keys()].slice(0, 100)
   const buyerProfiles = customer ? await load<BuyerProfile>(env.DB, inns.map(inn => 'b:' + inn)) : new Map<string, BuyerProfile>()
   const price = number(input.start_price)
   const ranked = inns.map(inn => {
     const match = chosen.get(inn)!
-    const features = featureValues(match, division || 'unknown', queryTerms, buyerProfiles.get('b:' + inn), customer, price)
-    const score = predict(features.values, division || 'unknown')
+    const features = featureValues(match, match.division, queryTerms, buyerProfiles.get('b:' + inn), customer, price)
+    const score = predict(features.values, match.division)
     const external = match.profile.external
     const channels = [number(match.catalog?.em_records) ? 'ЭМ' : '', number(match.catalog?.ais_records) ? 'АИС ГЗ' : ''].filter(Boolean)
     return { match, features, score, source: external?.source || (channels.length ? `История закупок: ${channels.join(', ')}` : 'История закупок: ЭМ') }
   }).sort((a, b) => b.match.relevance - a.match.relevance || b.score - a.score)
   const visible = ranked.slice(0, requestedInn ? 1 : topK)
+  const visibleDivisions = new Set(visible.map(row => row.match.division))
+  const displayDivision = explicitDivision || (visibleDivisions.size === 1 ? [...visibleDivisions][0] : null)
   const enriched = await load<Enrichment>(env.DB, visible.map(row => 'e:' + row.match.inn))
   const recommendations = visible.map((row, index) => ({
     rank: index + 1, supplier_inn: row.match.inn,
     supplier_name: row.match.profile.external?.supplier_name || enriched.get('e:' + row.match.inn)?.supplier_name || '',
-    profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280), category_division: division || 'unknown',
+    profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280), category_division: row.match.division,
     rank_score: requestedInn ? null : row.score, source: row.source, source_url: row.match.profile.external?.source_url || '',
     reasons: [...(requestedInn ? ['точное совпадение ИНН поставщика'] : []), ...explain(row.match, row.features)], history: row.features.history,
     enrichment: enriched.get('e:' + row.match.inn) || null,
+    offer: row.match.profile.external?.offer_title && row.match.profile.external.offer_checked_date ? {
+      title: row.match.profile.external.offer_title, price: row.match.profile.external.offer_price || '',
+      price_unit: row.match.profile.external.offer_price_unit || '', price_note: row.match.profile.external.offer_price_note || '',
+      availability: row.match.profile.external.offer_availability || '', offer_url: row.match.profile.external.offer_url || row.match.profile.external.source_url || '',
+      offer_checked_date: row.match.profile.external.offer_checked_date,
+    } as Offer : null,
   }))
-  return json(request, env, { query, category_division: division || null, category_inferred: !explicitDivision, search_fallback: searchFallback, mode, parsed_query: parsedQuery,
+  return json(request, env, { query, category_division: displayDivision, category_inferred: !explicitDivision, search_fallback: searchFallback, mode, parsed_query: parsedQuery,
     candidate_count: ranked.length, rank_score_is_probability: false, recommendations })
 }
 

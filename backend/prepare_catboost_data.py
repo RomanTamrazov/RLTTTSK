@@ -50,25 +50,55 @@ def read_inputs(data_dir: Path):
     duplicate_pairs = int(suppliers.duplicated(["lot_id", "supplier_inn"]).sum())
     suppliers = suppliers.drop_duplicates(["lot_id", "supplier_inn"])
 
-    # Aggregate the 3M-row TРУ file incrementally; preserve the dominant section per lot.
+    # Aggregate the 3M-row ТРУ file incrementally. Keep exact OKPD2 codes and a
+    # few real item names per lot: procedure titles alone are often too broad
+    # for precise search and text-similarity features.
     division_counts = defaultdict(Counter)
+    lot_codes: dict[str, set[str]] = defaultdict(set)
+    lot_products: dict[str, list[str]] = defaultdict(list)
     tru_path = data_dir / "ТРУ_24-25.csv"
-    for chunk in pd.read_csv(tru_path, sep=";", dtype=str, usecols=["lot_id", "okpd2_code"],
+    for chunk in pd.read_csv(tru_path, sep=";", dtype=str,
+                             usecols=["lot_id", "okpd2_code", "product_name"],
                              chunksize=250_000, keep_default_na=False):
         chunk["division"] = chunk["okpd2_code"].str.split(".", n=1).str[0]
         chunk = chunk[(chunk["lot_id"] != "") & (chunk["division"].str.fullmatch(r"\d{2}", na=False))]
         counts = chunk.groupby(["lot_id", "division"], sort=False).size()
         for (lot, division), count in counts.items():
             division_counts[lot][division] += int(count)
+        for lot, codes in chunk.groupby("lot_id", sort=False)["okpd2_code"].unique().items():
+            lot_codes[lot].update(code.strip() for code in codes if code.strip())
+        # A handful of distinct names per lot is enough for search examples;
+        # exact codes above are kept without this cap.
+        for lot, names in chunk.groupby("lot_id", sort=False)["product_name"]:
+            current = lot_products[lot]
+            if len(current) < 6:
+                known = set(current)
+                for name in names:
+                    name = name.strip()
+                    if name and name not in known:
+                        current.append(name)
+                        known.add(name)
+                        if len(current) == 6:
+                            break
     categories = pd.DataFrame([
         {"lot_id": lot, "category_division": sorted(counts.items(), key=lambda x: (-x[1], x[0]))[0][0],
          "category_count": len(counts)}
         for lot, counts in division_counts.items()
     ])
     categories["category_division"] = categories["category_division"].astype(str)
+    item_details = pd.DataFrame([
+        {"lot_id": lot,
+         "lot_okpd2_codes": json.dumps(sorted(codes), ensure_ascii=False),
+         "product_examples": " ".join(lot_products.get(lot, []))}
+        for lot, codes in lot_codes.items()
+    ])
 
     base = suppliers.merge(notices, on="lot_id", how="inner", validate="many_to_one")
     base = base.merge(categories, on="lot_id", how="left", validate="many_to_one")
+    base = base.merge(item_details, on="lot_id", how="left", validate="many_to_one")
+    item_text = base["product_examples"].fillna("").str.strip()
+    base["purchase_text"] = (base["purchase_text"].fillna("") + " " + item_text).str.strip()
+    base["lot_okpd2_codes"] = base["lot_okpd2_codes"].fillna("[]")
     base["category_division"] = base["category_division"].fillna("unknown").astype(str)
     base = base.sort_values(["publish_date", "lot_id", "supplier_inn"], kind="mergesort").reset_index(drop=True)
     cleaning = {
@@ -203,6 +233,14 @@ def save_search_catalog(base: pd.DataFrame, output_dir: Path):
     examples["example_text"] = examples["examples"].str[0]
     examples["examples_json"] = examples["examples"].map(lambda values: json.dumps(values, ensure_ascii=False))
     catalog = counts.merge(examples.drop(columns="examples"), on=keys, how="left", validate="one_to_one")
+    code_rows = known[keys + ["lot_okpd2_codes"]].drop_duplicates()
+    code_rows["okpd2_codes"] = code_rows["lot_okpd2_codes"].map(json.loads)
+    code_catalog = (code_rows.explode("okpd2_codes").dropna(subset=["okpd2_codes"])
+                    .groupby(keys, sort=False)["okpd2_codes"]
+                    .agg(lambda values: json.dumps(sorted(set(values)), ensure_ascii=False))
+                    .reset_index())
+    catalog = catalog.merge(code_catalog, on=keys, how="left", validate="one_to_one")
+    catalog["okpd2_codes"] = catalog["okpd2_codes"].fillna("[]")
     catalog.to_csv(output_dir / "supplier_search_catalog.csv.gz", index=False, compression="gzip")
     return len(catalog)
 

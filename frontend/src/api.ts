@@ -33,6 +33,7 @@ export interface Supplier {
     fns_registry_url?: string
   } | null
   reasons: string[]
+  offer: { title: string; price: string; price_unit: string; price_note: string; availability: string; offer_url: string; offer_checked_date: string } | null
   history: {
     participations: number
     wins: number
@@ -49,7 +50,8 @@ export interface SearchResult {
   candidate_count: number
   search_fallback?: boolean
   category_division: string | null
-  parsed_query: { purchase_text: string; okpd2_code: string | null; customer_inn: string | null; supplier_inn: string | null }
+  parsed_query: { purchase_text: string; okpd2_code: string | null; customer_inn: string | null; supplier_inn: string | null;
+    requested_quantity: number | null; quantity_unit: string | null; package_size: number | null; package_unit: string | null }
   recommendations: Supplier[]
 }
 
