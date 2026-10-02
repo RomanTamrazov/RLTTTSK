@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "typecheck": "tsc --noEmit",
+    "build:local": "tsc --noEmit && VITE_API_URL=/api vite build",
+    "test": "cd .. && node scripts/build-local.mjs && node --test .local-build/core.test.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

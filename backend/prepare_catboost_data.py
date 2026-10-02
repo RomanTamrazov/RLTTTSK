@@ -227,7 +227,7 @@ def save_search_catalog(base: pd.DataFrame, output_dir: Path):
                    last_activity=("publish_date", "max")))
     recent = (known.sort_values(["publish_date", "lot_id"], ascending=False, kind="mergesort")
               .drop_duplicates(keys + ["purchase_text"])
-              .groupby(keys, sort=False).head(4))
+              .groupby(keys, sort=False).head(32))
     examples = (recent.groupby(keys, as_index=False, sort=False)["purchase_text"]
                 .agg(list).rename(columns={"purchase_text": "examples"}))
     examples["example_text"] = examples["examples"].str[0]
@@ -241,6 +241,42 @@ def save_search_catalog(base: pd.DataFrame, output_dir: Path):
                     .reset_index())
     catalog = catalog.merge(code_catalog, on=keys, how="left", validate="one_to_one")
     catalog["okpd2_codes"] = catalog["okpd2_codes"].fillna("[]")
+    # These are sampled archive records, not a complete participation history.
+    trail = (known.sort_values(["publish_date", "lot_id"], ascending=False, kind="mergesort")
+             .drop_duplicates(keys + ["lot_id"]).groupby(keys, sort=False).head(6))
+    trail_records = []
+    for (inn, division), group in trail.groupby(keys, sort=False):
+        records = []
+        for r in group.itertuples():
+            budget = pd.to_numeric(r.start_price, errors="coerce")
+            records.append({"lot_id": str(r.lot_id), "reqnum": str(getattr(r, "reqnum", "") or ""),
+                            "purchase_text": str(r.purchase_text),
+                            "publish_date": r.publish_date.strftime("%Y-%m-%d"),
+                            "customer_inn": str(r.customer_inn or ""),
+                            "channel": str(r.purchase_channel),
+                            "em_winner": bool(r.label) if r.purchase_channel == "ЭМ" else None,
+                            "start_price": round(float(budget), 2) if pd.notna(budget) and 0 < budget <= 1_000_000_000 else None})
+        trail_records.append({"supplier_inn": inn, "category_division": division,
+                              "history_examples_json": json.dumps(records, ensure_ascii=False)})
+    if trail_records:
+        catalog = catalog.merge(pd.DataFrame(trail_records), on=keys, how="left", validate="one_to_one")
+    # Historical notice budgets are neither supplier quotes nor unit prices.
+    prices = known.copy()
+    prices["start_price"] = pd.to_numeric(prices["start_price"], errors="coerce")
+    prices = prices[prices["start_price"].gt(0) & prices["start_price"].le(1_000_000_000)]
+    prices = (prices.sort_values(["publish_date", "lot_id"], ascending=False, kind="mergesort")
+              .drop_duplicates(keys + ["purchase_text"]).groupby(keys, sort=False).head(8))
+    price_records = []
+    for (inn, division), group in prices.groupby(keys, sort=False):
+        records = [{"lot_id": str(r.lot_id), "purchase_text": r.purchase_text,
+                    "start_price": round(float(r.start_price), 2),
+                    "publish_date": r.publish_date.strftime("%Y-%m-%d"),
+                    "channel": r.purchase_channel, "was_winner": bool(r.label)}
+                   for r in group.itertuples()]
+        price_records.append({"supplier_inn": inn, "category_division": division,
+                              "price_examples_json": json.dumps(records, ensure_ascii=False)})
+    if price_records:
+        catalog = catalog.merge(pd.DataFrame(price_records), on=keys, how="left", validate="one_to_one")
     catalog.to_csv(output_dir / "supplier_search_catalog.csv.gz", index=False, compression="gzip")
     return len(catalog)
 

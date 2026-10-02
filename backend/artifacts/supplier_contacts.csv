@@ -1,12 +1,17 @@
-﻿supplier_inn,phone,email,website,contact_url,contact_source,contact_checked_date
-8911019868,+73499721157,purriba2004@mail.ru,,https://nayamale.ru/shop/vendor/products/53,https://tendery-jamalo-neneckiy-ao.tenderer.ru/tenders/15/tender92866850.html,2026-10-01
-7801314509,+78127140614,nda@nda.ru,https://nda.ru,https://nda.ru/contacts/,https://nda.ru/contacts/,2026-10-01
-7804558775,+7 (812) 329-35-45,office@grandservice.ru,https://grandservice.ru/,https://www.grandservice.ru/info/,https://www.grandservice.ru/info/,2026-10-02
-7838493981,+7 (800) 777-18-09,zakaz@kunjut.com,https://kunjut.com/,https://kunjut.com/contacts/,https://kunjut.com/contacts/,2026-10-02
-7802481848,+7 (812) 321-61-31,zakaz@efspb.ru,https://efspb.ru/,https://efspb.ru/contacts/,https://efspb.ru/contacts/,2026-10-02
-7721813012,+7 (495) 686-04-75,opt@semco.ru,https://semco.ru/,https://semco.ru/contacts/,https://semco.ru/contacts/,2026-10-02
-7719429480,+7 (800) 100-01-11,info@stanki.ru,https://www.stanki.ru/,https://www.stanki.ru/about/contacts/voronezh/,https://www.stanki.ru/about/contacts/voronezh/,2026-10-02
-7707055575,+7 (812) 385-99-49,piter@mona.ru,https://mona.ru/,https://spb.mona.ru/contact,https://spb.mona.ru/contact,2026-10-02
-782613753007,+7 (812) 509-12-10,sale@kalinbaza.ru,https://kalinbaza.ru/,https://kalinbaza.ru/contact-us,https://kalinbaza.ru/contact-us,2026-10-02
-7807021918,+7 (812) 660-06-10,reception@niivs.ru,https://spbniivs.ru/,https://spbniivs.ru/company/documents/,https://spbniivs.ru/company/documents/,2026-10-02
-4705022480,+7 812 339-88-55,info@klinmedmarket.ru,https://klinmedmarket.ru,https://klinmedmarket.ru/rekvizity,https://klinmedmarket.ru/rekvizity,2026-10-02
+supplier_inn,phone,email,website,contact_url,contact_source,contact_checked_date,supplier_name,supplier_role,role_source,role_checked_date
+8911019868,+73499721157,purriba2004@mail.ru,,https://nayamale.ru/shop/vendor/products/53,https://tendery-jamalo-neneckiy-ao.tenderer.ru/tenders/15/tender92866850.html,2026-10-01,,,,
+7801314509,+78127140614,nda@nda.ru,https://nda.ru,https://nda.ru/contacts/,https://nda.ru/contacts/,2026-10-01,ООО «НДА Деловая медицинская компания»,Дистрибьютор GE HealthCare,https://www.gehealthcare.ru/about/partners-list,2026-10-02
+7804558775,+7 (812) 329-35-45,office@grandservice.ru,https://grandservice.ru/,https://www.grandservice.ru/info/,https://www.grandservice.ru/info/,2026-10-02,,,,
+7838493981,+7 (800) 777-18-09,zakaz@kunjut.com,https://kunjut.com/,https://kunjut.com/contacts/,https://kunjut.com/contacts/,2026-10-02,,,,
+7802481848,+7 (812) 321-61-31,zakaz@efspb.ru,https://efspb.ru/,https://efspb.ru/contacts/,https://efspb.ru/contacts/,2026-10-02,,,,
+7721813012,+7 (495) 686-04-75,opt@semco.ru,https://semco.ru/,https://semco.ru/contacts/,https://semco.ru/contacts/,2026-10-02,,,,
+7719429480,+7 (800) 100-01-11,info@stanki.ru,https://www.stanki.ru/,https://www.stanki.ru/about/contacts/voronezh/,https://www.stanki.ru/about/contacts/voronezh/,2026-10-02,,,,
+7707055575,+7 (812) 385-99-49,piter@mona.ru,https://mona.ru/,https://spb.mona.ru/contact,https://spb.mona.ru/contact,2026-10-02,,,,
+782613753007,+7 (812) 509-12-10,sale@kalinbaza.ru,https://kalinbaza.ru/,https://kalinbaza.ru/contact-us,https://kalinbaza.ru/contact-us,2026-10-02,,,,
+7807021918,+7 (812) 660-06-10,reception@niivs.ru,https://spbniivs.ru/,https://spbniivs.ru/company/documents/,https://spbniivs.ru/company/documents/,2026-10-02,,,,
+4705022480,+7 812 339-88-55,info@klinmedmarket.ru,https://klinmedmarket.ru,https://klinmedmarket.ru/rekvizity,https://klinmedmarket.ru/rekvizity,2026-10-02,,,,
+7805074390,+78123275566,szuomt@mail.ru,https://www.szuomt.ru,https://www.gehealthcare.ru/about/partners-list,https://www.gehealthcare.ru/about/partners-list,2026-10-02,ООО «Северо-западное управление оптовой медицинской торговли»,Дистрибьютор GE HealthCare,https://www.gehealthcare.ru/about/partners-list,2026-10-02
+7802223438,+78124925693,drg@drgspb.ru,https://www.drgspb.ru,https://www.gehealthcare.ru/about/partners-list,https://www.gehealthcare.ru/about/partners-list,2026-10-02,ООО «ДРГ Биомед»,Дистрибьютор GE HealthCare,https://www.gehealthcare.ru/about/partners-list,2026-10-02
+7810185761,+78007779779,intelmed@intelmed.ru,https://www.intelmed.ru,https://www.gehealthcare.ru/about/partners-list,https://www.gehealthcare.ru/about/partners-list,2026-10-02,АО «ИнтелМед»,Дистрибьютор GE HealthCare,https://www.gehealthcare.ru/about/partners-list,2026-10-02
+7811470659,+78123262942,info@sphera-m.com,https://www.sphera-m.com,https://www.gehealthcare.ru/about/partners-list,https://www.gehealthcare.ru/about/partners-list,2026-10-02,ООО «Сфера М»,Дистрибьютор GE HealthCare,https://www.gehealthcare.ru/about/partners-list,2026-10-02
+7734171740,+74959213088,info@mpamed.ru,https://www.mpamed.ru,https://www.gehealthcare.ru/about/partners-list,https://www.gehealthcare.ru/about/partners-list,2026-10-02,ООО «М.П.А Медицинские партнеры»,Дистрибьютор GE HealthCare,https://www.gehealthcare.ru/about/partners-list,2026-10-02

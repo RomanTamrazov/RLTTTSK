@@ -53,6 +53,12 @@ def main() -> None:
     # safe discovery links even when FNS or a public contact was not found.
     if args.catalog.exists():
         catalog = pd.read_csv(args.catalog, dtype=str, keep_default_na=False)
+        # Supplier totals must not be overwritten by its last category row.
+        for field in ('observed_lots', 'ais_records', 'em_records'):
+            catalog[field] = pd.to_numeric(catalog[field], errors='coerce').fillna(0)
+        catalog = catalog.groupby('supplier_inn', as_index=False).agg(
+            last_activity=('last_activity', 'max'), observed_lots=('observed_lots', 'sum'),
+            ais_records=('ais_records', 'sum'), em_records=('em_records', 'sum'))
         for row in catalog.to_dict("records"):
             inn = str(row.get("supplier_inn", "")).strip()
             if len(inn) not in (10, 12) or not inn.isdigit() or inn.startswith("0000"):
@@ -63,7 +69,7 @@ def main() -> None:
                                            ("ais_records", "ais_records"),
                                            ("em_records", "em_records")):
                 if row.get(source_key):
-                    data[target_key] = row[source_key]
+                    data[target_key] = str(row[source_key])
             data.setdefault("activity_period", "2024–2025")
             data.setdefault("activity_source", "Архив закупок команды: 2024–2025")
     # Pre-filter public lookup pages by the selected company's INN, including

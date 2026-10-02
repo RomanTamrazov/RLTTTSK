@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Export the trained CatBoost trees and indexed supplier profiles for Workers + D1."""
+import argparse
 import importlib.util
 import json
 from collections import defaultdict
@@ -7,7 +8,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pandas as pd
-from catboost import CatBoostRanker, Pool
 from model_schema import CATEGORICAL, FEATURES, PRICE_CAP_EM, SCHEMA_VERSION
 from text_features import ENDINGS, GENERIC_STEMS, tokens
 
@@ -24,38 +24,42 @@ def bucket(term):
 def read(name):
     return pd.read_csv(ARTIFACTS / name, dtype={'supplier_inn': str, 'customer_inn': str, 'category_division': str}, keep_default_na=False)
 
-def main():
+def export_profiles(skip_model: bool = True):
     OUT.mkdir(parents=True, exist_ok=True)
-    packed = {}
-    model = CatBoostRanker()
-    model.load_model(str(ARTIFACTS / 'supplier_ranker.cbm'))
-    if model.feature_names_ != FEATURES:
-        raise ValueError('Model and feature schema differ')
-    divisions = ['unknown'] + [f'{i:02d}' for i in range(100)]
-    frame = pd.DataFrame([{f: (division if f in CATEGORICAL else 0) for f in FEATURES} for division in divisions], columns=FEATURES)
-    with TemporaryDirectory() as directory:
-        path = Path(directory) / 'model.py'
-        model.save_model(str(path), format='python', pool=Pool(frame, cat_features=CATEGORICAL))
-        spec = importlib.util.spec_from_file_location('exported_catboost', path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        exported = module.catboost_model
-        # The lookup is exact because this model's CTRs depend only on its one category.
-        if any(c.projection.binarized_indexes or c.projection.transposed_cat_feature_indexes != [0]
-               for c in exported.model_ctrs.compressed_model_ctrs):
-            raise ValueError('This exporter requires category-only CTRs')
-        category_bins = {}
-        for division in divisions:
-            ctrs = [0.] * exported.model_ctrs.used_model_ctrs_count
-            module.calc_ctrs(exported.model_ctrs, [0] * exported.binary_feature_count, [module.hash_uint64(division)], ctrs)
-            category_bins[division] = [sum(value > border for border in borders) for value, borders in zip(ctrs, exported.ctr_feature_borders)]
-        packed = {name: getattr(exported, name) for name in [
-            'float_features_index', 'float_feature_borders', 'tree_depth', 'tree_split_border',
-            'tree_split_feature_index', 'tree_split_xor_mask', 'scale', 'biases',
-        ]}
-        packed['leaf_values'] = [value[0] for value in exported.leaf_values]
-        packed.update(category_bins=category_bins, features=FEATURES, schema_version=SCHEMA_VERSION, price_cap=PRICE_CAP_EM,
-                      endings=ENDINGS, generic_stems=sorted(GENERIC_STEMS))
+    if skip_model:
+        packed = json.loads((OUT / 'model.json').read_text())
+    else:
+        from catboost import CatBoostRanker, Pool
+        packed = {}
+        model = CatBoostRanker()
+        model.load_model(str(ARTIFACTS / 'supplier_ranker.cbm'))
+        if model.feature_names_ != FEATURES:
+            raise ValueError('Model and feature schema differ')
+        divisions = ['unknown'] + [f'{i:02d}' for i in range(100)]
+        frame = pd.DataFrame([{f: (division if f in CATEGORICAL else 0) for f in FEATURES} for division in divisions], columns=FEATURES)
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / 'model.py'
+            model.save_model(str(path), format='python', pool=Pool(frame, cat_features=CATEGORICAL))
+            spec = importlib.util.spec_from_file_location('exported_catboost', path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            exported = module.catboost_model
+            # The lookup is exact because this model's CTRs depend only on its one category.
+            if any(c.projection.binarized_indexes or c.projection.transposed_cat_feature_indexes != [0]
+                   for c in exported.model_ctrs.compressed_model_ctrs):
+                raise ValueError('This exporter requires category-only CTRs')
+            category_bins = {}
+            for division in divisions:
+                ctrs = [0.] * exported.model_ctrs.used_model_ctrs_count
+                module.calc_ctrs(exported.model_ctrs, [0] * exported.binary_feature_count, [module.hash_uint64(division)], ctrs)
+                category_bins[division] = [sum(value > border for border in borders) for value, borders in zip(ctrs, exported.ctr_feature_borders)]
+            packed = {name: getattr(exported, name) for name in [
+                'float_features_index', 'float_feature_borders', 'tree_depth', 'tree_split_border',
+                'tree_split_feature_index', 'tree_split_xor_mask', 'scale', 'biases',
+            ]}
+            packed['leaf_values'] = [value[0] for value in exported.leaf_values]
+            packed.update(category_bins=category_bins, features=FEATURES, schema_version=SCHEMA_VERSION, price_cap=PRICE_CAP_EM,
+                          endings=ENDINGS, generic_stems=sorted(GENERIC_STEMS))
 
     suppliers = defaultdict(lambda: {'catalog': {}, 'categories': {}, 'global': {}})
     buyers = defaultdict(dict)
@@ -78,6 +82,8 @@ def main():
             continue
         examples = json.loads(record.pop('examples_json') or '[]')
         codes = json.loads(record.pop('okpd2_codes') or '[]')
+        record['price_examples'] = json.loads(record.pop('price_examples_json', '') or '[]')
+        record['history_examples'] = json.loads(record.pop('history_examples_json', '') or '[]')
         record.pop('example_text', None)
         record['okpd2_codes'] = codes
         record['examples'] = [{'text': text, 'tokens': sorted(tokens(text))} for text in examples]
@@ -142,6 +148,12 @@ def main():
     print(json.dumps({'suppliers': len(suppliers), 'search_terms': len(postings), 'import_rows': rows,
                      'sql_mb': round((OUT / 'data.sql').stat().st_size / 1e6, 2),
                      'model_kb': round((OUT / 'model.json').stat().st_size / 1e3, 1)}, ensure_ascii=False))
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--skip-model', action='store_true', help='Reuse checked-in CatBoost trees')
+    args = parser.parse_args()
+    export_profiles(skip_model=args.skip_model)
 
 if __name__ == '__main__':
     main()

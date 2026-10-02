@@ -3,13 +3,17 @@ import { parseQuery } from './query'
 
 type Env = { DB: D1Database; ALLOWED_ORIGINS: string }
 type RecordValue = Record<string, string | number>
-type Catalog = RecordValue & { observed_lots: number; ais_records: number; em_records: number; okpd2_codes: string[]; examples: { text: string; tokens: string[] }[] }
+type HistoricalPurchase = { lot_id: string; purchase_text: string; start_price: number; publish_date: string; channel: string; was_winner: boolean }
+type HistoryExample = { lot_id: string; reqnum: string; purchase_text: string; publish_date: string; customer_inn: string; channel: string; em_winner: boolean | null; start_price: number | null }
+type Catalog = RecordValue & { observed_lots: number; ais_records: number; em_records: number; okpd2_codes: string[];
+  examples: { text: string; tokens: string[] }[]; price_examples?: HistoricalPurchase[]; history_examples?: HistoryExample[] }
 type External = RecordValue & { supplier_name: string; profile_text: string; source: string; source_url: string; okpd2_codes: string; portal_status: string; portal_offer_count: string; offer_region_match: string; portal_category_match: string; offers_json?: string }
 type Enrichment = { supplier_name?: string; region?: string; city?: string; primary_okved?: string; msp_category?: string;
   staff_count?: string; snapshot_date?: string; source_url?: string; phone?: string; email?: string; website?: string;
   contact_url?: string; contact_source?: string; contact_checked_date?: string; last_activity?: string;
   observed_lots?: string; ais_records?: string; em_records?: string; activity_period?: string;
-  activity_source?: string; portal_lookup_url?: string; fns_registry_url?: string }
+  activity_source?: string; contact_lookup_url?: string; website_lookup_url?: string; portal_lookup_url?: string; fns_registry_url?: string;
+  supplier_role?: string; role_source?: string; role_checked_date?: string }
 type Offer = { title: string; price: string; price_unit: string; price_note: string; availability: string; offer_url: string; offer_checked_date: string }
 type Profile = { global: RecordValue; categories: Record<string, RecordValue>; catalog: Record<string, Catalog>; external?: External }
 type BuyerProfile = Record<string, [number, number, Record<string, number>]>
@@ -105,18 +109,55 @@ function featureValues(match: Match, division: string, purchaseTerms: Set<string
       age(category.last_category_activity), buyerParticipation, buyerWins,
       (buyerWins + 1) / (buyerParticipation + 2), buyerCategoryWins,
       Math.log1p(Math.min(Math.max(0, price), priceCap)), textSimilarity, 1],
+    history: { participations: participation, wins: number(global.total_wins), category_participations: categoryParticipation,
+      category_wins: number(category.category_wins), buyer_participations: buyerParticipation, buyer_wins: buyerWins,
+      buyer_category_wins: buyerCategoryWins },
     categoryMatch, textSimilarity, profileText,
   }
+}
+
+function explain(match: Match, features: ReturnType<typeof featureValues>): string[] {
+  const reasons: string[] = []
+  if (features.categoryMatch) reasons.push('профиль поставщика совпадает с разделом ОКПД2')
+  if (features.history.category_participations) reasons.push(`участвовал в этой категории ${features.history.category_participations} раз, побед ${features.history.category_wins}`)
+  if (features.history.buyer_participations) reasons.push(`есть ${features.history.buyer_participations} прошлых участий у заказчика, побед ${features.history.buyer_wins}`)
+  if (features.history.buyer_category_wins) reasons.push(`побед у этого заказчика в данной категории: ${features.history.buyer_category_wins}`)
+  if (features.textSimilarity >= .15) reasons.push('описание опыта или профиля похоже на предмет закупки')
+  if (!features.history.participations) reasons.push(match.catalog?.observed_lots ? 'есть записи закупок, но нет истории конкурентных результатов ЭМ' : 'нет истории в этих данных; оценка основана на профиле кандидата')
+  else if (features.history.participations < 10) reasons.push('исторический процент побед подтверждён небольшим числом участий')
+  if (match.profile.external?.portal_status) reasons.push(`статус в портале: ${match.profile.external.portal_status}`)
+  if (match.profile.external?.portal_offer_count) reasons.push(`в профиле портала опубликовано предложений: ${match.profile.external.portal_offer_count}`)
+  if (match.catalog?.observed_lots) reasons.push(`в архиве найдено закупок в этой категории: ${match.catalog.observed_lots}`)
+  return reasons
+}
+
+function historicalBudget(match: Match, purchaseTerms: Set<string>): HistoricalPurchase | null {
+  if (!purchaseTerms.size) return null
+  const candidates = (match.catalog?.price_examples || []).filter(row => {
+    if (!Number.isFinite(row.start_price) || row.start_price <= 0 || row.start_price > 1_000_000_000) return false
+    const other = tokens(row.purchase_text)
+    return [...purchaseTerms].filter(term => other.has(term)).length >= Math.min(2, purchaseTerms.size)
+      && overlap(purchaseTerms, other) >= .45
+  }).sort((a, b) => overlap(purchaseTerms, tokens(b.purchase_text)) - overlap(purchaseTerms, tokens(a.purchase_text)) || b.publish_date.localeCompare(a.publish_date))
+  return candidates[0] || null
 }
 
 async function search(request: Request, env: Env): Promise<Response> {
   if (number(request.headers.get('Content-Length')) > 4096) throw new InputError('Запрос слишком длинный.')
   let input: Record<string, unknown>
-  try { input = await request.json() as Record<string, unknown> } catch { throw new InputError('Передайте JSON с полем query.') }
+  const body = await request.text()
+  if (new TextEncoder().encode(body).length > 4096) throw new InputError('Запрос слишком длинный.')
+  try { input = JSON.parse(body) as Record<string, unknown> } catch { throw new InputError('Передайте JSON с полем query.') }
+  if (!input || Array.isArray(input) || typeof input !== 'object') throw new InputError('Передайте JSON с полем query.')
+  if (typeof input.query !== 'string') throw new InputError('Поле query должно быть строкой.')
+  if (input.start_price !== undefined && (typeof input.start_price !== 'number' || !Number.isFinite(input.start_price) || input.start_price <= 0 || input.start_price > 1e12)) throw new InputError('Бюджет должен быть числом больше нуля и не превышать 1 трлн ₽.')
   const query = String(input.query || '').trim()
   if (query.length < 2 || query.length > 500) throw new InputError('Длина запроса должна быть от 2 до 500 символов.')
   let parsed: ReturnType<typeof parseQuery>
-  try { parsed = parseQuery(query) } catch (error) { throw new InputError((error as Error).message) }
+  try { parsed = input.structured_query === true
+    ? { purchase_text: query, okpd2_code: '', customer_inn: '', supplier_inn: '',
+      requested_quantity: null, quantity_unit: null, package_size: null, package_unit: null }
+    : parseQuery(query) } catch (error) { throw new InputError((error as Error).message) }
   const explicitCode = String(input.okpd2_code || parsed.okpd2_code || '')
   const customer = String(input.customer_inn || parsed.customer_inn || '')
   if (input.okpd2_code && parsed.okpd2_code && input.okpd2_code !== parsed.okpd2_code) throw new InputError('Коды ОКПД2 в строке и отдельном поле различаются.')
@@ -134,7 +175,8 @@ async function search(request: Request, env: Env): Promise<Response> {
     requested_quantity: parsed.requested_quantity, quantity_unit: parsed.quantity_unit,
     package_size: parsed.package_size, package_unit: parsed.package_unit }
   const empty = (division: string | null) => json(request, env, { query, category_division: division, category_inferred: !explicitDivision,
-    mode, parsed_query: parsedQuery, candidate_count: 0, rank_score_is_probability: false, recommendations: [] })
+    mode, parsed_query: parsedQuery, purchase_budget: number(input.start_price) || null,
+    candidate_count: 0, rank_score_is_probability: false, recommendations: [] })
 
   const codeTerms: string[] = []
   if (explicitCode) {
@@ -262,14 +304,21 @@ async function search(request: Request, env: Env): Promise<Response> {
   const recommendations = visible.map((row, index) => ({
     rank: index + 1, supplier_inn: row.match.inn,
     supplier_name: row.match.profile.external?.supplier_name || enriched.get('e:' + row.match.inn)?.supplier_name || '',
+    profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280),
     category_division: row.match.division,
     rank_score: requestedInn ? null : row.score,
+    source: row.match.profile.external?.source || (row.match.catalog?.em_records ? 'История закупок: ЭМ' : 'История закупок: АИС ГЗ'),
+    source_url: row.match.profile.external?.source_url || '',
+    reasons: [...(requestedInn ? ['точное совпадение ИНН поставщика'] : []), ...explain(row.match, row.features)],
+    history: row.features.history,
     has_contacts: hasContact(row),
     enrichment: enriched.get('e:' + row.match.inn) || null,
     offer: row.matchedOffer || null,
+    pricing: { status: 'on_request', historical_purchase: historicalBudget(row.match, queryTerms) },
+    history_examples: row.match.catalog?.history_examples || [],
   }))
   return json(request, env, { query, category_division: displayDivision, category_inferred: !explicitDivision, search_fallback: searchFallback, mode, parsed_query: parsedQuery,
-    candidate_count: ranked.length, rank_score_is_probability: false, recommendations })
+    purchase_budget: price || null, candidate_count: ranked.length, rank_score_is_probability: false, recommendations })
 }
 
 export default {
