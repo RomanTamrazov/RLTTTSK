@@ -107,6 +107,7 @@ export function searchTerms(text: string): Set<string> {
   for (const term of tokens(text)) {
     if (concepts[term] && vocabulary.has(concepts[term])) { result.add(concepts[term]); continue }
     if (term.endsWith('ь') && vocabulary.has(term.slice(0, -1))) { result.add(term.slice(0, -1)); continue }
+    if (term.startsWith('авто') && vocabulary.has(term.slice(4))) { result.add(term.slice(4)); continue }
     if (vocabulary.has(term)) { result.add(term); continue }
     const latin = /[a-z]/.test(term)
     const phonetic = latin ? [...tokens(transliterate(term))] : []

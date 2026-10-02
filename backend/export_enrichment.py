@@ -71,7 +71,10 @@ def main() -> None:
     for inn, data in records.items():
         portal_filter = json.dumps({"isSupplier": True, "inn": {"value": inn}}, separators=(",", ":"))
         data["portal_lookup_url"] = "https://zakupki.mos.ru/organization/list?page=1&perPage=10&filter=" + quote(portal_filter, safe="")
-        data["fns_registry_url"] = "https://egrul.nalog.ru/index.html?query=" + quote(inn, safe="")
+        # EGRUL ignores URL query parameters. Saby has a working public INN
+        # profile URL; the official FNS site requires its own search form.
+        data["fns_registry_url"] = "https://egrul.nalog.ru/index.html"
+        data["saby_profile_url"] = "https://saby.ru/profile/" + quote(inn, safe="")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as output:
         output.write("DELETE FROM store WHERE key >= 'e:' AND key < 'e;';\n")

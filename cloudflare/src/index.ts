@@ -57,8 +57,8 @@ function packageMismatch(size: number | null, unit: string | null, text: string)
     : /^(г|гр)$/.test(value) ? 'weight-small' : /^(кг|килограмм)/.test(value) ? 'weight-large' : value
   const expectedUnit = group(unit)
   const measures = [...text.matchAll(/(\d+(?:[,.]\d+)?)\s*(мл|ml|л|литр(?:а|ов)?|г|гр|кг|килограмм(?:а|ов)?)(?![\p{L}])/giu)]
-  return measures.some(match => group(match[2].toLowerCase()) === expectedUnit
-    && Math.abs(Number(match[1].replace(',', '.')) - size) > 0.0001)
+  const comparable = measures.filter(match => group(match[2].toLowerCase()) === expectedUnit)
+  return comparable.length > 0 && !comparable.some(match => Math.abs(Number(match[1].replace(',', '.')) - size) < 0.0001)
 }
 function divisions(profile: Profile): string[] {
   const codes = profile.external?.okpd2_codes
@@ -83,6 +83,13 @@ function bestExample(queryTerms: Set<string>, catalog: Catalog, requiredWords: n
     if (relevance > best.relevance) best = { relevance, text: example.text }
   }
   return best
+}
+function nearbyTerms(text: string, terms: Set<string>): boolean {
+  const words = (text.toLowerCase().match(/[0-9a-zа-яё]{3,}/g) || []).flatMap(word => [...tokens(word)])
+  for (let start = 0; start < words.length; start++) {
+    if (terms.has(words[start]) && [...terms].every(term => words.slice(start, start + 4).includes(term))) return true
+  }
+  return false
 }
 function featureValues(match: Match, division: string, purchaseTerms: Set<string>, buyer: BuyerProfile | undefined, customer: string, price: number) {
   const global = match.profile.global || {}, category = match.profile.categories[division] || {}
@@ -206,6 +213,7 @@ async function search(request: Request, env: Env): Promise<Response> {
       found = true
     }
     if (profile.external) {
+      if (!requestedInn && packageMismatch(parsed.package_size, parsed.package_unit, profile.external.profile_text)) continue
       for (const division of divisions(profile)) {
         if (explicitDivision && division !== explicitDivision) continue
         const externalOffers = offers(profile.external)
@@ -230,6 +238,12 @@ async function search(request: Request, env: Env): Promise<Response> {
     if (requestedInn && !found) matches.push({ inn, division: explicitDivision || Object.keys(profile.categories || {})[0] || 'unknown', relevance: 0,
       example: String(profile.global?.last_win_text || ''), profile })
   }
+  // When several suppliers match every product word, omit broad one-word
+  // fallbacks (for example ordinary vehicle repair for tow-truck repair).
+  if (!explicitCode && queryTerms.size > 1) {
+    const precise = matches.filter(match => nearbyTerms(match.example, queryTerms))
+    if (new Set(precise.map(match => match.inn)).size >= 3) matches.splice(0, matches.length, ...precise)
+  }
   matches.sort((a, b) => b.relevance - a.relevance || number(b.catalog?.observed_lots) - number(a.catalog?.observed_lots))
   if (!matches.length) return empty(explicitDivision || null)
   const chosen = new Map<string, Match>()
@@ -252,6 +266,17 @@ async function search(request: Request, env: Env): Promise<Response> {
     const channels = [number(match.catalog?.em_records) ? 'ЭМ' : '', number(match.catalog?.ais_records) ? 'АИС ГЗ' : ''].filter(Boolean)
     return { match, features, score, matchedOffer, source: external?.source || (channels.length ? `История закупок: ${channels.join(', ')}` : 'История закупок: ЭМ') }
   }).sort((a, b) => b.match.relevance - a.match.relevance || b.score - a.score)
+  // Keep one recently verified, contactable supplier visible when its product
+  // match is comparable to the leaders. The learned winner rank stays first.
+  if (!requestedInn && ranked.length > 5) {
+    const matchFloor = Math.max(0.28, ranked[0].match.relevance * 0.35)
+    const contactIndex = ranked.findIndex((row, index) => index >= 5 && row.match.relevance >= matchFloor
+      && Boolean(row.match.profile.external?.contact_phone || row.match.profile.external?.contact_email))
+    if (contactIndex >= 0 && !ranked.slice(0, 5).some(row => row.match.profile.external?.contact_phone || row.match.profile.external?.contact_email)) {
+      const [contactable] = ranked.splice(contactIndex, 1)
+      ranked.splice(4, 0, contactable)
+    }
+  }
   const visible = ranked.slice(0, requestedInn ? 1 : topK)
   const visibleDivisions = new Set(visible.map(row => row.match.division))
   const displayDivision = explicitDivision || (visibleDivisions.size === 1 ? [...visibleDivisions][0] : null)
@@ -259,7 +284,9 @@ async function search(request: Request, env: Env): Promise<Response> {
   const recommendations = visible.map((row, index) => ({
     rank: index + 1, supplier_inn: row.match.inn,
     supplier_name: row.match.profile.external?.supplier_name || enriched.get('e:' + row.match.inn)?.supplier_name || '',
-    profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280), category_division: row.match.division,
+    profile_excerpt: (row.match.example || row.features.profileText).slice(0, 280),
+    profile_description: (row.match.profile.external?.profile_text || row.match.catalog?.examples?.map(example => example.text).slice(0, 4).join('; ') || row.features.profileText).slice(0, 1500),
+    category_division: row.match.division,
     rank_score: requestedInn ? null : row.score, source: row.source, source_url: row.matchedOffer?.offer_url || row.match.profile.external?.source_url || '',
     reasons: [...(requestedInn ? ['точное совпадение ИНН поставщика'] : []), ...explain(row.match, row.features)], history: row.features.history,
     enrichment: enriched.get('e:' + row.match.inn) || null,
@@ -275,6 +302,28 @@ export default {
       'Access-Control-Allow-Methods': 'POST, GET, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' } })
     const path = new URL(request.url).pathname.replace(/^\/api/, '')
     if (request.method === 'GET' && path === '/health') return json(request, env, { status: 'ok', feature_schema_version: schemaVersion, trees: treeCount })
+    if (request.method === 'GET' && path === '/egrul') {
+      const inn = new URL(request.url).searchParams.get('inn') || ''
+      if (!digits.test(inn)) return json(request, env, { detail: 'Укажите ИНН из 10 или 12 цифр.' }, 422)
+      try {
+        const started = await fetch('https://egrul.nalog.ru/', {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Accept: 'application/json' },
+          body: new URLSearchParams({ query: inn }), signal: AbortSignal.timeout(12000),
+        })
+        if (!started.ok) throw new Error(`FNS search ${started.status}`)
+        const token = await started.json() as { t?: string; captchaRequired?: boolean }
+        if (token.captchaRequired) return json(request, env, { detail: 'ФНС запросила проверку в браузере. Откройте официальный сайт.' }, 503)
+        if (!token.t || !/^[A-F0-9]{64,256}$/.test(token.t)) throw new Error('FNS search token missing')
+        const found = await fetch(`https://egrul.nalog.ru/search-result/${token.t}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12000) })
+        if (!found.ok) throw new Error(`FNS result ${found.status}`)
+        const data = await found.json() as { rows?: { i?: string; n?: string; o?: string; r?: string; k?: string }[] }
+        const companies = (data.rows || []).filter(row => row.i === inn).map(row => ({ name: row.n || '', ogrn: row.o || '', registered: row.r || '', kind: row.k === 'fl' ? 'ИП' : 'организация' }))
+        return json(request, env, { inn, companies, source_url: 'https://egrul.nalog.ru/index.html' })
+      } catch (error) {
+        console.error('FNS lookup error', error)
+        return json(request, env, { detail: 'ФНС временно не ответила. Попробуйте позже или откройте официальный сайт.' }, 502)
+      }
+    }
     if (request.method !== 'POST' || path !== '/search') return json(request, env, { detail: 'Маршрут не найден.' }, 404)
     try { return await search(request, env) }
     catch (error) {

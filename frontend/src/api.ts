@@ -3,6 +3,7 @@ export interface Supplier {
   supplier_inn: string
   supplier_name: string
   profile_excerpt: string
+  profile_description: string
   category_division: string
   rank_score: number | null
   source: string
@@ -56,6 +57,16 @@ export interface SearchResult {
 }
 
 let apiUrl: Promise<string> | undefined
+const serviceUrl = () => apiUrl ??= fetch(`${import.meta.env.BASE_URL}config.json`)
+  .then(r => { if (!r.ok) throw new Error('Не найден адрес сервиса рекомендаций.'); return r.json() })
+  .then(config => import.meta.env.VITE_API_URL || config.apiUrl || '/api')
+
+export async function lookupEgrul(inn: string): Promise<{ inn: string; companies: { name: string; ogrn: string; registered: string; kind: string }[]; source_url: string }> {
+  const response = await fetch(`${(await serviceUrl()).replace(/\/$/, '')}/egrul?inn=${encodeURIComponent(inn)}`)
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.detail || 'Не удалось проверить ЕГРЮЛ.')
+  return data
+}
 export interface SearchOptions {
   okpd2_code?: string
   customer_inn?: string
@@ -64,10 +75,7 @@ export interface SearchOptions {
 }
 
 export async function searchSuppliers(query: string, signal: AbortSignal, options: SearchOptions = {}): Promise<SearchResult> {
-  apiUrl ??= fetch(`${import.meta.env.BASE_URL}config.json`)
-    .then(r => { if (!r.ok) throw new Error('Не найден адрес сервиса рекомендаций.'); return r.json() })
-    .then(config => import.meta.env.VITE_API_URL || config.apiUrl || '/api')
-  const response = await fetch(`${(await apiUrl).replace(/\/$/, '')}/search`, {
+  const response = await fetch(`${(await serviceUrl()).replace(/\/$/, '')}/search`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, top_k: 30, ...options }), signal,
   })
