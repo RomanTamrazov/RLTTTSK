@@ -285,7 +285,7 @@ export default function App() {
 
   return <main className={'app' + (tab === 'bulk' && bulkRows.length ? ' bulk-ready-view' : '')}>
     <header className="topbar"><a className="brand" href="#" onClick={event => { event.preventDefault(); setTab('search') }}>RLTTTSK<span>ПОИСК ПОСТАВЩИКОВ</span></a>
-      <span className="version-badge"><i />Пилотная версия</span></header>
+    </header>
     <section className="hero">
       <img src={import.meta.env.BASE_URL + 'images/petersburg-sketch.png'} alt="" aria-hidden="true" className="city-background" />
       <div className="hero-content"><span className="eyebrow">ЗАКУПКИ · КОМПАНИИ · РЕШЕНИЯ</span>
